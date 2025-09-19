@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "36064760029",
+    "project_id": "ups-app-7d001",
+    "storage_bucket": "ups-app-7d001.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:36064760029:android:86855c4e2aba92aefecb34",
+        "android_client_info": {
+          "package_name": "com.example.myapp"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBnVn3OPoSXKbPNQLEGhCP5iTnMaVcDG28"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
