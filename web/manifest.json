@@ -1,6 +1,6 @@
 {
-    "name": "myapp",
-    "short_name": "myapp",
+    "name": "UPS",
+    "short_name": "UPS",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",

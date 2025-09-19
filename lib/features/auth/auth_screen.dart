@@ -37,19 +37,25 @@ class _AuthScreenState extends State<AuthScreen> {
     });
 
     final authService = Provider.of<AuthService>(context, listen: false);
+    // Capture helpers before awaits
+    final messenger = ScaffoldMessenger.of(context);
+    final router = GoRouter.of(context);
     final success = await authService.signInWithEmailAndPassword(
       _emailController.text.trim(),
       _passwordController.text.trim(),
     );
 
-    if (mounted) {
-      setState(() {
-        _isLoading = false;
-      });
+    if (!mounted) return;
+    setState(() {
+      _isLoading = false;
+    });
 
-      if (success) {
-        context.go('/dashboard/home');
-      }
+    if (success) {
+      router.go('/dashboard/home');
+    } else {
+      final msg = Provider.of<AuthService>(context, listen: false).errorMessage ??
+          'Login failed. Please check your credentials.';
+      messenger.showSnackBar(SnackBar(content: Text(msg)));
     }
   }
 
@@ -57,6 +63,13 @@ class _AuthScreenState extends State<AuthScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final authService = Provider.of<AuthService>(context);
+
+    // If auth is still restoring, keep a simple loader (router will redirect)
+    if (!authService.isReady) {
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
 
     return Scaffold(
       body: SafeArea(

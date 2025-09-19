@@ -9,7 +9,7 @@ class TaxScreen extends StatelessWidget {
     final theme = Theme.of(context);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Tax Payments')),
+  appBar: AppBar(title: const Text('Tax Payments')),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16.0),
         child: Column(
@@ -49,7 +49,7 @@ class TaxScreen extends StatelessWidget {
           children: <Widget>[
             TextFormField(
               decoration: const InputDecoration(
-                labelText: 'Amount (GHC)',
+                labelText: 'Amount (Rs.)',
                 border: OutlineInputBorder(),
               ),
               keyboardType: TextInputType.number,
@@ -104,14 +104,14 @@ class TaxScreen extends StatelessWidget {
         _buildPaymentHistoryItem(
           context,
           taxType: 'Waste Collection',
-          amount: 'GHC 50.00',
+          amount: 'Rs. 50.00',
           date: '15 Oct 2023',
           status: 'Paid',
         ),
         _buildPaymentHistoryItem(
           context,
           taxType: 'Property Tax',
-          amount: 'GHC 250.00',
+          amount: 'Rs. 250.00',
           date: '10 Sep 2023',
           status: 'Paid',
         ),

@@ -23,8 +23,8 @@ android {
     }
 
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
-        applicationId = "com.example.myapp"
+    // Application ID must match google-services.json package_name
+    applicationId = "com.example.myapp"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion
@@ -35,9 +35,15 @@ android {
 
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
+            // TODO: Replace with your real signing config for Play Store builds.
             signingConfig = signingConfigs.getByName("debug")
+            // Disable code/resource shrinking to avoid R8 missing-class issues
+            isMinifyEnabled = false
+            isShrinkResources = false
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                file("proguard-rules.pro"),
+            )
         }
     }
 }

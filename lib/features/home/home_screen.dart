@@ -18,6 +18,16 @@ class HomeScreen extends StatelessWidget {
       appBar: AppBar(
         title: Text('Welcome, ${user?.displayName ?? 'User'}'),
         actions: [
+          PopupMenuButton<String>(
+            onSelected: (value) {
+              if (value == 'about') {
+                context.go('/dashboard/about');
+              }
+            },
+            itemBuilder: (context) => const [
+              PopupMenuItem(value: 'about', child: Text('About')),
+            ],
+          ),
           IconButton(
             icon: const FaIcon(FontAwesomeIcons.rightFromBracket),
             onPressed: () async {
@@ -79,8 +89,20 @@ class HomeScreen extends StatelessWidget {
         ),
         _buildDashboardCard(
           context,
+          icon: FontAwesomeIcons.newspaper,
+          label: 'News',
+          onTap: () => context.go('/dashboard/news'),
+        ),
+        _buildDashboardCard(
+          context,
+          icon: FontAwesomeIcons.circleExclamation,
+          label: 'Complaints',
+          onTap: () => context.go('/dashboard/complaints'),
+        ),
+        _buildDashboardCard(
+          context,
           icon: FontAwesomeIcons.calendarCheck,
-          label: 'Book Pickup',
+          label: 'Booking',
           onTap: () => context.go('/dashboard/bookings'),
         ),
         _buildDashboardCard(
@@ -128,7 +150,7 @@ class HomeScreen extends StatelessWidget {
           context,
           icon: FontAwesomeIcons.solidCreditCard,
           title: 'Tax Payment Successful',
-          subtitle: 'Paid GHC 50.00',
+          subtitle: 'Paid Rs. 50.00',
         ),
         _buildActivityItem(
           context,

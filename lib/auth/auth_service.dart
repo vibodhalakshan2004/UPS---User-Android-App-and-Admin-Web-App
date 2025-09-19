@@ -1,5 +1,6 @@
 import 'dart:developer' as developer;
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
@@ -8,17 +9,62 @@ class AuthService with ChangeNotifier {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
   User? _user;
+  bool _isReady = false; // becomes true after first auth event
 
   User? get user => _user;
+  bool get isReady => _isReady;
   String? _errorMessage;
   String? get errorMessage => _errorMessage;
 
   AuthService() {
-    _auth.authStateChanges().listen((user) {
+    // Initialize from current user immediately
+    _user = _auth.currentUser;
+
+    // Listen for ongoing changes
+    _auth.idTokenChanges().listen((user) async {
       _user = user;
       _errorMessage = null;
+      // If a user appears and app isn't marked ready yet, mark ready now
+      if (user != null && !_isReady) {
+        _isReady = true;
+      }
+      // Persist a hint for next cold start
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setBool('wasLoggedIn', user != null);
+      } catch (_) {}
       notifyListeners();
     });
+
+    if (_user != null) {
+      _isReady = true;
+    } else {
+      // Wait for the first non-null user (restored session) or time out.
+      () async {
+        try {
+          // If we were logged in last run, allow a bit longer for restore
+          Duration timeout = const Duration(seconds: 8);
+          try {
+            final prefs = await SharedPreferences.getInstance();
+            final was = prefs.getBool('wasLoggedIn') ?? false;
+            if (was) timeout = const Duration(seconds: 12);
+          } catch (_) {}
+          final nonNullUser = await _auth
+              .idTokenChanges()
+              .where((u) => u != null)
+              .first
+              .timeout(timeout);
+          _user = nonNullUser;
+        } catch (_) {
+          // Timeout or stream error -> assume no user to restore
+        } finally {
+          if (!_isReady) {
+            _isReady = true;
+            notifyListeners();
+          }
+        }
+      }();
+    }
   }
 
   Future<bool> signInWithEmailAndPassword(String email, String password) async {

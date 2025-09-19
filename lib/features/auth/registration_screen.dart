@@ -17,7 +17,10 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
   final _emailController = TextEditingController();
   final _phoneController = TextEditingController();
   final _passwordController = TextEditingController();
+  final _confirmController = TextEditingController();
   bool _isLoading = false;
+  double _strength = 0.0;
+  String _strengthLabel = 'Too short';
 
   @override
   void dispose() {
@@ -25,7 +28,39 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
     _emailController.dispose();
     _phoneController.dispose();
     _passwordController.dispose();
+    _confirmController.dispose();
     super.dispose();
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _passwordController.addListener(_computeStrength);
+  }
+
+  void _computeStrength() {
+    final p = _passwordController.text;
+    double s = 0;
+    if (p.length >= 8) s += 0.3;
+    if (RegExp(r'[A-Z]').hasMatch(p)) s += 0.2;
+    if (RegExp(r'[a-z]').hasMatch(p)) s += 0.2;
+    if (RegExp(r'[0-9]').hasMatch(p)) s += 0.2;
+    if (RegExp(r'[!@#\$%^&*(),.?":{}|<>]').hasMatch(p)) s += 0.1;
+    s = s.clamp(0.0, 1.0);
+    String label;
+    if (s < 0.3) {
+      label = 'Too short';
+    } else if (s < 0.6) {
+      label = 'Weak';
+    } else if (s < 0.8) {
+      label = 'Medium';
+    } else {
+      label = 'Strong';
+    }
+    setState(() {
+      _strength = s;
+      _strengthLabel = label;
+    });
   }
 
   Future<void> _submit() async {
@@ -40,6 +75,9 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
     });
 
     final authService = Provider.of<AuthService>(context, listen: false);
+    // Capture helpers before awaits
+    final messenger = ScaffoldMessenger.of(context);
+    final router = GoRouter.of(context);
     final success = await authService.signUpWithEmailAndPassword(
       _emailController.text.trim(),
       _passwordController.text.trim(),
@@ -47,14 +85,16 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
       _phoneController.text.trim(),
     );
 
-    if (mounted) {
-      setState(() {
-        _isLoading = false;
-      });
+    if (!mounted) return;
+    setState(() {
+      _isLoading = false;
+    });
 
-      if (success) {
-        context.go('/dashboard/home');
-      }
+    if (success) {
+      router.go('/dashboard/home');
+    } else {
+      final msg = Provider.of<AuthService>(context, listen: false).errorMessage ?? 'Registration failed. Please try again.';
+      messenger.showSnackBar(SnackBar(content: Text(msg)));
     }
   }
 
@@ -120,10 +160,12 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                               labelText: 'Email',
                             ),
                             keyboardType: TextInputType.emailAddress,
-                            validator: (value) =>
-                                value!.isEmpty || !value.contains('@')
-                                ? 'Enter a valid email'
-                                : null,
+                            validator: (value) {
+                              final v = value?.trim() ?? '';
+                              if (v.isEmpty) return 'Enter your email';
+                              final emailRegex = RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$');
+                              return emailRegex.hasMatch(v) ? null : 'Enter a valid email';
+                            },
                           ),
                           const SizedBox(height: 16),
                           TextFormField(
@@ -132,9 +174,12 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                               labelText: 'Phone Number',
                             ),
                             keyboardType: TextInputType.phone,
-                            validator: (value) => value!.isEmpty
-                                ? 'Please enter your phone number'
-                                : null,
+                            validator: (value) {
+                              final v = value?.trim() ?? '';
+                              if (v.isEmpty) return 'Please enter your phone number';
+                              if (!RegExp(r'^[0-9+\-()\s]{7,}$').hasMatch(v)) return 'Enter a valid phone number';
+                              return null;
+                            },
                           ),
                           const SizedBox(height: 16),
                           TextFormField(
@@ -143,9 +188,42 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                               labelText: 'Password',
                             ),
                             obscureText: true,
-                            validator: (value) => value!.length < 6
-                                ? 'Password must be at least 6 characters'
-                                : null,
+                            validator: (value) {
+                              final v = value ?? '';
+                              if (v.length < 8) return 'Password must be at least 8 characters';
+                              if (!RegExp(r'[A-Z]').hasMatch(v)) return 'Include at least one uppercase letter';
+                              if (!RegExp(r'[a-z]').hasMatch(v)) return 'Include at least one lowercase letter';
+                              if (!RegExp(r'[0-9]').hasMatch(v)) return 'Include at least one number';
+                              if (!RegExp(r'[!@#\$%^&*(),.?":{}|<>]').hasMatch(v)) return 'Include at least one special character';
+                              return null;
+                            },
+                          ),
+                          const SizedBox(height: 8),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: LinearProgressIndicator(
+                                  value: _strength,
+                                  backgroundColor: Colors.grey.shade300,
+                                  color: _strength < 0.6
+                                      ? Colors.red
+                                      : (_strength < 0.8 ? Colors.orange : Colors.green),
+                                  minHeight: 6,
+                                  borderRadius: const BorderRadius.all(Radius.circular(8)),
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Text(_strengthLabel),
+                            ],
+                          ),
+                          const SizedBox(height: 16),
+                          TextFormField(
+                            controller: _confirmController,
+                            decoration: const InputDecoration(
+                              labelText: 'Confirm Password',
+                            ),
+                            obscureText: true,
+                            validator: (value) => value == _passwordController.text ? null : 'Passwords do not match',
                           ),
                           const SizedBox(height: 24),
 

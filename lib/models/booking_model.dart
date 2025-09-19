@@ -7,6 +7,8 @@ class Booking {
   final DateTime bookingDate;
   final String bookingReason;
   final String status;
+  final String? deathCertificateUrl;
+  final String? deathCertificateName;
 
   Booking({
     required this.id,
@@ -15,6 +17,8 @@ class Booking {
     required this.bookingDate,
     required this.bookingReason,
     required this.status,
+    this.deathCertificateUrl,
+    this.deathCertificateName,
   });
 
   factory Booking.fromFirestore(DocumentSnapshot doc) {
@@ -26,6 +30,8 @@ class Booking {
       bookingDate: (data['bookingDate'] as Timestamp).toDate(),
       bookingReason: data['bookingReason'] ?? '',
       status: data['status'] ?? 'pending',
+      deathCertificateUrl: data['deathCertificateUrl'] as String?,
+      deathCertificateName: data['deathCertificateName'] as String?,
     );
   }
 
@@ -36,6 +42,8 @@ class Booking {
       'bookingDate': bookingDate,
       'bookingReason': bookingReason,
       'status': status,
+      if (deathCertificateUrl != null) 'deathCertificateUrl': deathCertificateUrl,
+      if (deathCertificateName != null) 'deathCertificateName': deathCertificateName,
     };
   }
 }

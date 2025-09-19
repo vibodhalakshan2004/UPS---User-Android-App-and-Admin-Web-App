@@ -2,6 +2,35 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+// ThemeProvider to manage app theme state across the app
+class ThemeProvider with ChangeNotifier {
+  ThemeMode _themeMode = ThemeMode.system;
+
+  ThemeMode get themeMode => _themeMode;
+
+  void setThemeMode(ThemeMode mode) {
+    _themeMode = mode;
+    notifyListeners();
+  }
+
+  // Cycle: system -> light -> dark -> system
+  void toggleTheme() {
+    if (_themeMode == ThemeMode.light) {
+      _themeMode = ThemeMode.dark;
+    } else if (_themeMode == ThemeMode.dark) {
+      _themeMode = ThemeMode.system;
+    } else {
+      _themeMode = ThemeMode.light;
+    }
+    notifyListeners();
+  }
+
+  void setSystemTheme() {
+    _themeMode = ThemeMode.system;
+    notifyListeners();
+  }
+}
+
 // Colors from the logo
 const Color primaryColor = Color(0xFFFBC02D); // Yellow
 const Color secondaryColor = Color(0xFF388E3C); // Green
@@ -22,7 +51,7 @@ class AppTheme {
         secondary: secondaryColor,
         error: accentColor,
       ),
-      scaffoldBackgroundColor: lightBackgroundColor,
+      scaffoldBackgroundColor: const Color(0xFFF8FAFC),
       textTheme: textTheme.copyWith(
         displayLarge: textTheme.displayLarge?.copyWith(fontWeight: FontWeight.bold, color: secondaryColor),
         headlineMedium: textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.bold, color: secondaryColor),
@@ -33,18 +62,19 @@ class AppTheme {
         bodyMedium: textTheme.bodyMedium?.copyWith(color: Colors.black54),
       ),
       appBarTheme: AppBarTheme(
-        backgroundColor: secondaryColor,
-        foregroundColor: Colors.white,
-        elevation: 4,
-        titleTextStyle: textTheme.titleLarge?.copyWith(color: Colors.white, fontWeight: FontWeight.bold),
+        backgroundColor: Colors.white,
+        foregroundColor: Colors.black87,
+        elevation: 0,
+        surfaceTintColor: Colors.transparent,
+        titleTextStyle: textTheme.titleLarge?.copyWith(color: Colors.black87, fontWeight: FontWeight.w600),
       ),
       elevatedButtonTheme: ElevatedButtonThemeData(
         style: ElevatedButton.styleFrom(
           foregroundColor: Colors.white,
           backgroundColor: secondaryColor,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
           padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 14),
-          elevation: 5,
+          elevation: 0,
           shadowColor: secondaryColor.withAlpha(102), // 40% opacity
         ),
       ),
@@ -55,26 +85,31 @@ class AppTheme {
       ),
       inputDecorationTheme: InputDecorationTheme(
         border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(14),
           borderSide: const BorderSide(color: secondaryColor),
         ),
         focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(14),
           borderSide: const BorderSide(color: primaryColor, width: 2),
         ),
         labelStyle: const TextStyle(color: secondaryColor),
       ),
       cardTheme: CardThemeData(
-        elevation: 8,
-        shadowColor: Colors.black.withAlpha(51), // 20% opacity
+        elevation: 0,
+        color: Colors.white,
+        shadowColor: Colors.transparent,
+        surfaceTintColor: Colors.white,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      ),
+      listTileTheme: const ListTileThemeData(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.all(Radius.circular(14))),
       ),
       bottomNavigationBarTheme: const BottomNavigationBarThemeData(
         backgroundColor: Colors.white,
         selectedItemColor: secondaryColor,
         unselectedItemColor: Colors.grey,
-        elevation: 10,
-        selectedLabelStyle: TextStyle(fontWeight: FontWeight.bold),
+        elevation: 0,
+        selectedLabelStyle: TextStyle(fontWeight: FontWeight.w600),
       ),
     );
   }

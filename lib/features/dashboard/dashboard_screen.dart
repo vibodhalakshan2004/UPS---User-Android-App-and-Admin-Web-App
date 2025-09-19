@@ -34,8 +34,16 @@ class DashboardScreen extends StatelessWidget {
                   label: Text('Tracker'),
                 ),
                 NavigationRailDestination(
+                  icon: Icon(FontAwesomeIcons.newspaper),
+                  label: Text('News'),
+                ),
+                NavigationRailDestination(
+                  icon: Icon(FontAwesomeIcons.circleExclamation),
+                  label: Text('Complaints'),
+                ),
+                NavigationRailDestination(
                   icon: Icon(FontAwesomeIcons.calendarCheck),
-                  label: Text('Bookings'),
+                  label: Text('Booking'),
                 ),
                 NavigationRailDestination(
                   icon: Icon(FontAwesomeIcons.user),
@@ -64,8 +72,16 @@ class DashboardScreen extends StatelessWidget {
                   label: 'Tracker',
                 ),
                 BottomNavigationBarItem(
+                  icon: Icon(FontAwesomeIcons.newspaper),
+                  label: 'News',
+                ),
+                BottomNavigationBarItem(
+                  icon: Icon(FontAwesomeIcons.circleExclamation),
+                  label: 'Complaints',
+                ),
+                BottomNavigationBarItem(
                   icon: Icon(FontAwesomeIcons.calendarCheck),
-                  label: 'Bookings',
+                  label: 'Booking',
                 ),
                 BottomNavigationBarItem(
                   icon: Icon(FontAwesomeIcons.user),
@@ -81,7 +97,7 @@ class DashboardScreen extends StatelessWidget {
     final GoRouter route = GoRouter.of(context);
     final String location = route.routerDelegate.currentConfiguration.fullPath;
 
-    if (location.startsWith('/dashboard/home')) {
+    if (location.startsWith('/dashboard/home') || location.startsWith('/dashboard/about')) {
       return 0;
     }
     if (location.startsWith('/dashboard/tax')) {
@@ -90,11 +106,17 @@ class DashboardScreen extends StatelessWidget {
     if (location.startsWith('/dashboard/tracker')) {
       return 2;
     }
-    if (location.startsWith('/dashboard/bookings')) {
+    if (location.startsWith('/dashboard/news')) {
       return 3;
     }
-    if (location.startsWith('/dashboard/profile')) {
+    if (location.startsWith('/dashboard/complaints')) {
       return 4;
+    }
+    if (location.startsWith('/dashboard/bookings')) {
+      return 5;
+    }
+    if (location.startsWith('/dashboard/profile')) {
+      return 6;
     }
     return 0;
   }
@@ -111,9 +133,15 @@ class DashboardScreen extends StatelessWidget {
         context.go('/dashboard/tracker');
         break;
       case 3:
-        context.go('/dashboard/bookings');
+        context.go('/dashboard/news');
         break;
       case 4:
+        context.go('/dashboard/complaints');
+        break;
+      case 5:
+        context.go('/dashboard/bookings');
+        break;
+      case 6:
         context.go('/dashboard/profile');
         break;
     }
