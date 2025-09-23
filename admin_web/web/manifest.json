@@ -1,19 +1,14 @@
 {
-    "name": "UPS",
-    "short_name": "UPS",
+    "name": "UPS Admin Panel",
+    "short_name": "UPS Admin",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",
     "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "description": "UPS Admin Panel - Administrative interface for UPS management system.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [
-        {
-            "src": "icons/logo.png",
-            "sizes": "144x144",
-            "type": "image/png"
-        },
         {
             "src": "icons/Icon-192.png",
             "sizes": "192x192",

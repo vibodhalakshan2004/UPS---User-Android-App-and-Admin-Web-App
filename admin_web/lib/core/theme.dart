@@ -1,35 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
-// ThemeProvider to manage app theme state across the app
-class ThemeProvider with ChangeNotifier {
-  ThemeMode _themeMode = ThemeMode.system;
-
-  ThemeMode get themeMode => _themeMode;
-
-  void setThemeMode(ThemeMode mode) {
-    _themeMode = mode;
-    notifyListeners();
-  }
-
-  // Cycle: system -> light -> dark -> system
-  void toggleTheme() {
-    if (_themeMode == ThemeMode.light) {
-      _themeMode = ThemeMode.dark;
-    } else if (_themeMode == ThemeMode.dark) {
-      _themeMode = ThemeMode.system;
-    } else {
-      _themeMode = ThemeMode.light;
-    }
-    notifyListeners();
-  }
-
-  void setSystemTheme() {
-    _themeMode = ThemeMode.system;
-    notifyListeners();
-  }
-}
-
 // Colors from the logo
 const Color primaryColor = Color(0xFFFBC02D); // Yellow
 const Color secondaryColor = Color(0xFF388E3C); // Green

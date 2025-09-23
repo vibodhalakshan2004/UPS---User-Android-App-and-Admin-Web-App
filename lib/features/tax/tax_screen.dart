@@ -9,7 +9,7 @@ class TaxScreen extends StatelessWidget {
     final theme = Theme.of(context);
 
     return Scaffold(
-  appBar: AppBar(title: const Text('Tax Payments')),
+      appBar: AppBar(title: const Text('Tax Payments')),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16.0),
         child: Column(

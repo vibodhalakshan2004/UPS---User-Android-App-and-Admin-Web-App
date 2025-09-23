@@ -97,7 +97,8 @@ class DashboardScreen extends StatelessWidget {
     final GoRouter route = GoRouter.of(context);
     final String location = route.routerDelegate.currentConfiguration.fullPath;
 
-    if (location.startsWith('/dashboard/home') || location.startsWith('/dashboard/about')) {
+    if (location.startsWith('/dashboard/home') ||
+        location.startsWith('/dashboard/about')) {
       return 0;
     }
     if (location.startsWith('/dashboard/tax')) {

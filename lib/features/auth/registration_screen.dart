@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 import '../../auth/auth_service.dart';
+import '../../core/app_logo.dart';
 
 class RegistrationScreen extends StatefulWidget {
   const RegistrationScreen({super.key});
@@ -93,7 +94,9 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
     if (success) {
       router.go('/dashboard/home');
     } else {
-      final msg = Provider.of<AuthService>(context, listen: false).errorMessage ?? 'Registration failed. Please try again.';
+      final msg =
+          Provider.of<AuthService>(context, listen: false).errorMessage ??
+          'Registration failed. Please try again.';
       messenger.showSnackBar(SnackBar(content: Text(msg)));
     }
   }
@@ -113,7 +116,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 // Logo
-                Image.asset('assets/images/logo.png', height: 100, width: 100),
+                const AppLogo(size: 100),
                 const SizedBox(height: 24),
 
                 // Title
@@ -163,8 +166,12 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                             validator: (value) {
                               final v = value?.trim() ?? '';
                               if (v.isEmpty) return 'Enter your email';
-                              final emailRegex = RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$');
-                              return emailRegex.hasMatch(v) ? null : 'Enter a valid email';
+                              final emailRegex = RegExp(
+                                r'^[^@\s]+@[^@\s]+\.[^@\s]+$',
+                              );
+                              return emailRegex.hasMatch(v)
+                                  ? null
+                                  : 'Enter a valid email';
                             },
                           ),
                           const SizedBox(height: 16),
@@ -176,8 +183,12 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                             keyboardType: TextInputType.phone,
                             validator: (value) {
                               final v = value?.trim() ?? '';
-                              if (v.isEmpty) return 'Please enter your phone number';
-                              if (!RegExp(r'^[0-9+\-()\s]{7,}$').hasMatch(v)) return 'Enter a valid phone number';
+                              if (v.isEmpty) {
+                                return 'Please enter your phone number';
+                              }
+                              if (!RegExp(r'^[0-9+\-()\s]{7,}$').hasMatch(v)) {
+                                return 'Enter a valid phone number';
+                              }
                               return null;
                             },
                           ),
@@ -190,11 +201,23 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                             obscureText: true,
                             validator: (value) {
                               final v = value ?? '';
-                              if (v.length < 8) return 'Password must be at least 8 characters';
-                              if (!RegExp(r'[A-Z]').hasMatch(v)) return 'Include at least one uppercase letter';
-                              if (!RegExp(r'[a-z]').hasMatch(v)) return 'Include at least one lowercase letter';
-                              if (!RegExp(r'[0-9]').hasMatch(v)) return 'Include at least one number';
-                              if (!RegExp(r'[!@#\$%^&*(),.?":{}|<>]').hasMatch(v)) return 'Include at least one special character';
+                              if (v.length < 8) {
+                                return 'Password must be at least 8 characters';
+                              }
+                              if (!RegExp(r'[A-Z]').hasMatch(v)) {
+                                return 'Include at least one uppercase letter';
+                              }
+                              if (!RegExp(r'[a-z]').hasMatch(v)) {
+                                return 'Include at least one lowercase letter';
+                              }
+                              if (!RegExp(r'[0-9]').hasMatch(v)) {
+                                return 'Include at least one number';
+                              }
+                              if (!RegExp(
+                                r'[!@#\$%^&*(),.?":{}|<>]',
+                              ).hasMatch(v)) {
+                                return 'Include at least one special character';
+                              }
                               return null;
                             },
                           ),
@@ -207,9 +230,13 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                                   backgroundColor: Colors.grey.shade300,
                                   color: _strength < 0.6
                                       ? Colors.red
-                                      : (_strength < 0.8 ? Colors.orange : Colors.green),
+                                      : (_strength < 0.8
+                                            ? Colors.orange
+                                            : Colors.green),
                                   minHeight: 6,
-                                  borderRadius: const BorderRadius.all(Radius.circular(8)),
+                                  borderRadius: const BorderRadius.all(
+                                    Radius.circular(8),
+                                  ),
                                 ),
                               ),
                               const SizedBox(width: 12),
@@ -223,7 +250,10 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                               labelText: 'Confirm Password',
                             ),
                             obscureText: true,
-                            validator: (value) => value == _passwordController.text ? null : 'Passwords do not match',
+                            validator: (value) =>
+                                value == _passwordController.text
+                                ? null
+                                : 'Passwords do not match',
                           ),
                           const SizedBox(height: 24),
 

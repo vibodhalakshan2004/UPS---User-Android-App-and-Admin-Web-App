@@ -48,7 +48,9 @@ class _BookingScreenState extends State<BookingScreen> {
     _formKey.currentState!.save();
 
     // Ensure the selected/typed time is included in reason if not already
-    if (_bookingType == 'ground' && _groundTime != null && _groundTime!.trim().isNotEmpty) {
+    if (_bookingType == 'ground' &&
+        _groundTime != null &&
+        _groundTime!.trim().isNotEmpty) {
       if (!_bookingReason.contains('Time:')) {
         _bookingReason = _bookingReason.isEmpty
             ? 'Time: ${_groundTime!.trim()}'
@@ -205,26 +207,47 @@ class _BookingScreenState extends State<BookingScreen> {
                 },
               ),
               const SizedBox(height: 16),
-              // Availability for the selected date
+              // Availability for the selected date (consider only approved bookings)
               StreamBuilder<QuerySnapshot>(
                 stream: FirebaseFirestore.instance
                     .collection('bookings')
-                    .where('bookingDate', isEqualTo: Timestamp.fromDate(_normalizedDate(_selectedDate)))
+                    .where(
+                      'bookingDate',
+                      isEqualTo: Timestamp.fromDate(
+                        _normalizedDate(_selectedDate),
+                      ),
+                    )
                     .snapshots(),
                 builder: (context, snapshot) {
                   final docs = snapshot.data?.docs ?? [];
-                  final bool dateBooked = docs.isNotEmpty;
+                  // Consider only approved bookings as blocking
+                  final approved = docs.where((d) {
+                    final data = d.data() as Map<String, dynamic>;
+                    return (data['status'] as String?) == 'approved';
+                  }).toList();
+                  final bool dateBooked = approved.isNotEmpty;
                   // Attempt to parse booked time slots from bookingReason text, if present
                   final Set<String> bookedSlots = {
-                    for (final d in docs)
+                    for (final d in approved)
                       ...() {
                         final data = d.data() as Map<String, dynamic>;
                         final reason = (data['bookingReason'] as String?) ?? '';
-                        final regex = RegExp(r'Time:\s*([0-9: ]+(AM|PM))', caseSensitive: false);
+                        final regex = RegExp(
+                          r'Time:\s*([0-9: ]+(AM|PM))',
+                          caseSensitive: false,
+                        );
                         final m = regex.firstMatch(reason);
-                        if (m != null) return {m.group(1)!.toUpperCase().replaceAll(' ', ' ').trim()};
+                        if (m != null) {
+                          return {
+                            m
+                                .group(1)!
+                                .toUpperCase()
+                                .replaceAll(' ', ' ')
+                                .trim(),
+                          };
+                        }
                         return <String>{};
-                      }()
+                      }(),
                   };
 
                   Widget cemeteryWidget = const SizedBox.shrink();
@@ -235,7 +258,12 @@ class _BookingScreenState extends State<BookingScreen> {
                       children: [
                         Align(
                           alignment: Alignment.centerLeft,
-                          child: Text('Time Slot', style: theme.textTheme.bodyLarge?.copyWith(fontWeight: FontWeight.w600)),
+                          child: Text(
+                            'Time Slot',
+                            style: theme.textTheme.bodyLarge?.copyWith(
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
                         ),
                         const SizedBox(height: 8),
                         Wrap(
@@ -244,12 +272,20 @@ class _BookingScreenState extends State<BookingScreen> {
                           children: [
                             for (final s in slots)
                               ChoiceChip(
-                                label: Text(bookedSlots.contains(s) || dateBooked ? '$s (Booked)' : s),
+                                label: Text(
+                                  bookedSlots.contains(s) || dateBooked
+                                      ? '$s (Booked)'
+                                      : s,
+                                ),
                                 selected: _cemeterySlot == s,
                                 onSelected: (selected) {
                                   if (dateBooked || bookedSlots.contains(s)) {
                                     ScaffoldMessenger.of(context).showSnackBar(
-                                      const SnackBar(content: Text('This slot is already booked.')),
+                                      const SnackBar(
+                                        content: Text(
+                                          'This slot is already booked.',
+                                        ),
+                                      ),
                                     );
                                     return;
                                   }
@@ -257,9 +293,13 @@ class _BookingScreenState extends State<BookingScreen> {
                                     _cemeterySlot = selected ? s : null;
                                   });
                                 },
-                disabledColor: theme.colorScheme.error.withValues(alpha: 0.15),
-                                backgroundColor: bookedSlots.contains(s) || dateBooked
-                  ? theme.colorScheme.error.withValues(alpha: 0.15)
+                                disabledColor: theme.colorScheme.error
+                                    .withValues(alpha: 0.15),
+                                backgroundColor:
+                                    bookedSlots.contains(s) || dateBooked
+                                    ? theme.colorScheme.error.withValues(
+                                        alpha: 0.15,
+                                      )
                                     : null,
                                 labelStyle: TextStyle(
                                   color: bookedSlots.contains(s) || dateBooked
@@ -272,7 +312,9 @@ class _BookingScreenState extends State<BookingScreen> {
                         // Hidden validator for cemetery selection
                         FormField<String>(
                           validator: (_) {
-                            if (_bookingType == 'cemetery' && !dateBooked && _cemeterySlot == null) {
+                            if (_bookingType == 'cemetery' &&
+                                !dateBooked &&
+                                _cemeterySlot == null) {
                               return 'Please select a time slot';
                             }
                             return null;
@@ -280,7 +322,12 @@ class _BookingScreenState extends State<BookingScreen> {
                           builder: (state) => state.hasError
                               ? Padding(
                                   padding: const EdgeInsets.only(top: 8.0),
-                                  child: Text(state.errorText!, style: TextStyle(color: theme.colorScheme.error)),
+                                  child: Text(
+                                    state.errorText!,
+                                    style: TextStyle(
+                                      color: theme.colorScheme.error,
+                                    ),
+                                  ),
                                 )
                               : const SizedBox.shrink(),
                         ),
@@ -309,12 +356,19 @@ class _BookingScreenState extends State<BookingScreen> {
                         const SizedBox(height: 8),
                         Row(
                           children: [
-                            Icon(Icons.event_busy, color: theme.colorScheme.error, size: 18),
+                            Icon(
+                              Icons.event_busy,
+                              color: theme.colorScheme.error,
+                              size: 18,
+                            ),
                             const SizedBox(width: 6),
-                            Text('This date is already booked', style: TextStyle(color: theme.colorScheme.error)),
+                            Text(
+                              'This date is already booked',
+                              style: TextStyle(color: theme.colorScheme.error),
+                            ),
                           ],
                         ),
-                      ]
+                      ],
                     ],
                   );
 
@@ -328,8 +382,9 @@ class _BookingScreenState extends State<BookingScreen> {
                           onChanged: (v) => _groundTime = v,
                           onSaved: (v) {
                             if (v != null && v.trim().isNotEmpty) {
-                              _bookingReason =
-                                  _bookingReason.isEmpty ? 'Time: ${v.trim()}' : '$_bookingReason | Time: ${v.trim()}';
+                              _bookingReason = _bookingReason.isEmpty
+                                  ? 'Time: ${v.trim()}'
+                                  : '$_bookingReason | Time: ${v.trim()}';
                             }
                           },
                           validator: (v) => (v == null || v.trim().isEmpty)
@@ -343,14 +398,21 @@ class _BookingScreenState extends State<BookingScreen> {
                       if (_bookingType == 'cemetery') ...[
                         Align(
                           alignment: Alignment.centerLeft,
-                          child: Text('Death Certificate (PDF or Image)', style: theme.textTheme.bodyLarge?.copyWith(fontWeight: FontWeight.w600)),
+                          child: Text(
+                            'Death Certificate (PDF or Image)',
+                            style: theme.textTheme.bodyLarge?.copyWith(
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
                         ),
                         const SizedBox(height: 8),
                         Row(
                           children: [
                             Expanded(
                               child: Text(
-                                _deathCertName == null ? 'No file selected' : _deathCertName!,
+                                _deathCertName == null
+                                    ? 'No file selected'
+                                    : _deathCertName!,
                                 overflow: TextOverflow.ellipsis,
                               ),
                             ),
@@ -358,44 +420,75 @@ class _BookingScreenState extends State<BookingScreen> {
                             OutlinedButton.icon(
                               onPressed: () async {
                                 final messenger = ScaffoldMessenger.of(context);
-                                final result = await FilePicker.platform.pickFiles(
-                                  type: FileType.custom,
-                                  allowedExtensions: const ['pdf', 'png', 'jpg', 'jpeg'],
-                                  withData: true,
-                                );
-                                if (result == null || result.files.isEmpty) return;
+                                final result = await FilePicker.platform
+                                    .pickFiles(
+                                      type: FileType.custom,
+                                      allowedExtensions: const [
+                                        'pdf',
+                                        'png',
+                                        'jpg',
+                                        'jpeg',
+                                      ],
+                                      withData: true,
+                                    );
+                                if (result == null || result.files.isEmpty) {
+                                  return;
+                                }
                                 final file = result.files.single;
                                 final bytes = file.bytes;
                                 if (bytes == null) return;
                                 try {
-                                  final storageRef = FirebaseStorage.instance.ref().child(
+                                  final storageRef = FirebaseStorage.instance
+                                      .ref()
+                                      .child(
                                         'death_certificates/${DateTime.now().millisecondsSinceEpoch}_${file.name}',
                                       );
                                   final meta = SettableMetadata(
-                                    contentType: file.extension == 'pdf' ? 'application/pdf' : 'image/${file.extension}',
+                                    contentType: file.extension == 'pdf'
+                                        ? 'application/pdf'
+                                        : 'image/${file.extension}',
                                   );
-                                  final uploadTask = await storageRef.putData(bytes, meta);
-                                  final url = await uploadTask.ref.getDownloadURL();
+                                  final uploadTask = await storageRef.putData(
+                                    bytes,
+                                    meta,
+                                  );
+                                  final url = await uploadTask.ref
+                                      .getDownloadURL();
                                   setState(() {
                                     _deathCertUrl = url;
                                     _deathCertName = file.name;
                                   });
                                   if (!mounted) return;
-                                  messenger.showSnackBar(const SnackBar(content: Text('File uploaded successfully.')));
+                                  messenger.showSnackBar(
+                                    const SnackBar(
+                                      content: Text(
+                                        'File uploaded successfully.',
+                                      ),
+                                    ),
+                                  );
                                 } catch (e) {
                                   if (!mounted) return;
-                                  messenger.showSnackBar(SnackBar(content: Text('Failed to upload file: $e')));
+                                  messenger.showSnackBar(
+                                    SnackBar(
+                                      content: Text(
+                                        'Failed to upload file: $e',
+                                      ),
+                                    ),
+                                  );
                                 }
                               },
                               icon: const Icon(Icons.upload_file),
-                              label: Text(_deathCertUrl == null ? 'Upload' : 'Re-upload'),
+                              label: Text(
+                                _deathCertUrl == null ? 'Upload' : 'Re-upload',
+                              ),
                             ),
                           ],
                         ),
                         const SizedBox(height: 16),
                       ],
                       if (_bookingType == 'cemetery') cemeteryWidget,
-                      if (_bookingType == 'cemetery') const SizedBox(height: 16),
+                      if (_bookingType == 'cemetery')
+                        const SizedBox(height: 16),
                       if (_bookingType == 'ground') groundTimeField,
                       if (_bookingType == 'ground') const SizedBox(height: 16),
                       dateField,
@@ -407,16 +500,31 @@ class _BookingScreenState extends State<BookingScreen> {
                         ),
                         maxLines: 3,
                         onSaved: (value) => _bookingReason = value!,
-                        validator: (value) => value!.isEmpty ? 'Please provide a reason' : null,
+                        validator: (value) =>
+                            value!.isEmpty ? 'Please provide a reason' : null,
                       ),
                       const SizedBox(height: 24),
                       Row(
                         children: [
-                          Container(width: 12, height: 12, decoration: BoxDecoration(color: theme.colorScheme.error, shape: BoxShape.circle)),
+                          Container(
+                            width: 12,
+                            height: 12,
+                            decoration: BoxDecoration(
+                              color: theme.colorScheme.error,
+                              shape: BoxShape.circle,
+                            ),
+                          ),
                           const SizedBox(width: 6),
                           const Text('Booked'),
                           const SizedBox(width: 16),
-                          Container(width: 12, height: 12, decoration: const BoxDecoration(color: Colors.green, shape: BoxShape.circle)),
+                          Container(
+                            width: 12,
+                            height: 12,
+                            decoration: const BoxDecoration(
+                              color: Colors.green,
+                              shape: BoxShape.circle,
+                            ),
+                          ),
                           const SizedBox(width: 6),
                           const Text('Available'),
                         ],
@@ -491,6 +599,20 @@ class _BookingScreenState extends State<BookingScreen> {
                 title: Text('${booking.bookingType} - ${booking.status}'),
                 subtitle: Text(
                   '${booking.bookingDate.toLocal()}'.split(' ')[0],
+                ),
+                trailing: Chip(
+                  label: Text(
+                    booking.status == 'pending'
+                        ? 'Pending approval'
+                        : booking.status == 'approved'
+                        ? 'Approved'
+                        : 'Rejected',
+                  ),
+                  backgroundColor: booking.status == 'pending'
+                      ? Colors.orange.shade100
+                      : booking.status == 'approved'
+                      ? Colors.green.shade100
+                      : Colors.red.shade100,
                 ),
               ),
             );

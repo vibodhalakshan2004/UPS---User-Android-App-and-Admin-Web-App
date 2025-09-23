@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 import '../../auth/auth_service.dart';
+import '../../core/app_logo.dart';
 
 class AuthScreen extends StatefulWidget {
   const AuthScreen({super.key});
@@ -53,7 +54,8 @@ class _AuthScreenState extends State<AuthScreen> {
     if (success) {
       router.go('/dashboard/home');
     } else {
-      final msg = Provider.of<AuthService>(context, listen: false).errorMessage ??
+      final msg =
+          Provider.of<AuthService>(context, listen: false).errorMessage ??
           'Login failed. Please check your credentials.';
       messenger.showSnackBar(SnackBar(content: Text(msg)));
     }
@@ -66,9 +68,7 @@ class _AuthScreenState extends State<AuthScreen> {
 
     // If auth is still restoring, keep a simple loader (router will redirect)
     if (!authService.isReady) {
-      return const Scaffold(
-        body: Center(child: CircularProgressIndicator()),
-      );
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
     return Scaffold(
@@ -81,7 +81,7 @@ class _AuthScreenState extends State<AuthScreen> {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 // Logo
-                Image.asset('assets/images/logo.png', height: 120, width: 120),
+                const AppLogo(size: 120, showTitle: true, title: 'UPS'),
                 const SizedBox(height: 24),
 
                 // Title

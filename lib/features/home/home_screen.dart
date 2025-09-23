@@ -4,6 +4,7 @@ import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../auth/auth_service.dart';
+import '../../core/app_logo.dart';
 
 class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});
@@ -16,7 +17,7 @@ class HomeScreen extends StatelessWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text('Welcome, ${user?.displayName ?? 'User'}'),
+        title: const AppLogo(showTitle: true, title: 'UPS'),
         actions: [
           PopupMenuButton<String>(
             onSelected: (value) {
@@ -44,6 +45,13 @@ class HomeScreen extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
+            Text(
+              'Welcome, ${user?.displayName ?? 'User'}',
+              style: theme.textTheme.headlineSmall?.copyWith(
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 8),
             Text(
               'Dashboard',
               style: theme.textTheme.headlineMedium?.copyWith(

@@ -26,10 +26,7 @@ void main() {
             home: Scaffold(
               appBar: AppBar(title: const Text('Test')),
               body: Center(
-                child: Text(
-                  tp.themeMode.toString(),
-                  key: const Key('mode'),
-                ),
+                child: Text(tp.themeMode.toString(), key: const Key('mode')),
               ),
             ),
           ),

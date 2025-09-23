@@ -42,8 +42,10 @@ class Booking {
       'bookingDate': bookingDate,
       'bookingReason': bookingReason,
       'status': status,
-      if (deathCertificateUrl != null) 'deathCertificateUrl': deathCertificateUrl,
-      if (deathCertificateName != null) 'deathCertificateName': deathCertificateName,
+      if (deathCertificateUrl != null)
+        'deathCertificateUrl': deathCertificateUrl,
+      if (deathCertificateName != null)
+        'deathCertificateName': deathCertificateName,
     };
   }
 }

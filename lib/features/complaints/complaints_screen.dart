@@ -29,7 +29,9 @@ class _ComplaintsScreenState extends State<ComplaintsScreen> {
     if (!_formKey.currentState!.validate()) return;
     final user = Provider.of<AuthService>(context, listen: false).user;
     if (user == null) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please sign in to submit a complaint.')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please sign in to submit a complaint.')),
+      );
       return;
     }
     setState(() => _submitting = true);
@@ -44,10 +46,14 @@ class _ComplaintsScreenState extends State<ComplaintsScreen> {
       if (!mounted) return;
       _subjectCtrl.clear();
       _detailsCtrl.clear();
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Complaint submitted successfully.')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Complaint submitted successfully.')),
+      );
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to submit complaint: $e')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Failed to submit complaint: $e')));
     } finally {
       if (mounted) setState(() => _submitting = false);
     }
@@ -63,7 +69,9 @@ class _ComplaintsScreenState extends State<ComplaintsScreen> {
         padding: const EdgeInsets.all(16),
         children: [
           Card(
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
             child: Padding(
               padding: const EdgeInsets.all(16.0),
               child: Form(
@@ -71,26 +79,48 @@ class _ComplaintsScreenState extends State<ComplaintsScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    Text('Submit a Complaint', style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w600)),
+                    Text(
+                      'Submit a Complaint',
+                      style: theme.textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
                     const SizedBox(height: 12),
                     TextFormField(
                       controller: _subjectCtrl,
-                      decoration: const InputDecoration(labelText: 'Subject', border: OutlineInputBorder(), prefixIcon: Icon(Icons.subject)),
-                      validator: (v) => v == null || v.trim().isEmpty ? 'Enter a subject' : null,
+                      decoration: const InputDecoration(
+                        labelText: 'Subject',
+                        border: OutlineInputBorder(),
+                        prefixIcon: Icon(Icons.subject),
+                      ),
+                      validator: (v) => v == null || v.trim().isEmpty
+                          ? 'Enter a subject'
+                          : null,
                     ),
                     const SizedBox(height: 12),
                     TextFormField(
                       controller: _detailsCtrl,
-                      decoration: const InputDecoration(labelText: 'Details', border: OutlineInputBorder(), prefixIcon: Icon(Icons.description)),
+                      decoration: const InputDecoration(
+                        labelText: 'Details',
+                        border: OutlineInputBorder(),
+                        prefixIcon: Icon(Icons.description),
+                      ),
                       minLines: 3,
                       maxLines: 5,
-                      validator: (v) => v == null || v.trim().isEmpty ? 'Enter details' : null,
+                      validator: (v) => v == null || v.trim().isEmpty
+                          ? 'Enter details'
+                          : null,
                     ),
                     const SizedBox(height: 16),
                     ElevatedButton.icon(
-                      onPressed: _submitting ? null : _submit,
-                      icon: const FaIcon(FontAwesomeIcons.paperPlane, color: Colors.white),
-                      label: _submitting ? const Text('Submitting...') : const Text('Submit'),
+                      onPressed: _submitting || user == null ? null : _submit,
+                      icon: const FaIcon(
+                        FontAwesomeIcons.paperPlane,
+                        color: Colors.white,
+                      ),
+                      label: _submitting
+                          ? const Text('Submitting...')
+                          : const Text('Submit'),
                     ),
                   ],
                 ),
@@ -98,7 +128,12 @@ class _ComplaintsScreenState extends State<ComplaintsScreen> {
             ),
           ),
           const SizedBox(height: 16),
-          Text('My Complaints', style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w600)),
+          Text(
+            'My Complaints',
+            style: theme.textTheme.titleLarge?.copyWith(
+              fontWeight: FontWeight.w600,
+            ),
+          ),
           const SizedBox(height: 12),
           if (user == null)
             const Text('Sign in to view your complaints.')
@@ -107,7 +142,7 @@ class _ComplaintsScreenState extends State<ComplaintsScreen> {
               stream: FirebaseFirestore.instance
                   .collection('complaints')
                   .where('uid', isEqualTo: user.uid)
-                  .orderBy('createdAt', descending: true)
+                  // Avoid potential composite index requirement; sort client-side
                   .snapshots(),
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting) {
@@ -116,26 +151,52 @@ class _ComplaintsScreenState extends State<ComplaintsScreen> {
                 if (snapshot.hasError) {
                   return Text('Error: ${snapshot.error}');
                 }
-                final docs = snapshot.data?.docs ?? [];
+                final docs = List<QueryDocumentSnapshot>.from(
+                  snapshot.data?.docs ?? [],
+                );
+                // Sort by createdAt desc (nulls last)
+                docs.sort((a, b) {
+                  final am =
+                      ((a.data() as Map<String, dynamic>)['createdAt']
+                              as Timestamp?)
+                          ?.millisecondsSinceEpoch ??
+                      -1;
+                  final bm =
+                      ((b.data() as Map<String, dynamic>)['createdAt']
+                              as Timestamp?)
+                          ?.millisecondsSinceEpoch ??
+                      -1;
+                  return bm.compareTo(am);
+                });
                 if (docs.isEmpty) return const Text('No complaints yet.');
                 return ListView.separated(
                   shrinkWrap: true,
                   physics: const NeverScrollableScrollPhysics(),
-                  separatorBuilder: (context, index) => const SizedBox(height: 8),
+                  separatorBuilder: (context, index) =>
+                      const SizedBox(height: 8),
                   itemCount: docs.length,
                   itemBuilder: (context, index) {
                     final data = docs[index].data() as Map<String, dynamic>;
                     final subject = data['subject'] as String? ?? '';
                     final status = data['status'] as String? ?? 'open';
-                    final createdAt = (data['createdAt'] as Timestamp?)?.toDate();
+                    final createdAt = (data['createdAt'] as Timestamp?)
+                        ?.toDate();
                     return Card(
                       child: ListTile(
                         leading: Icon(
-                          status == 'open' ? Icons.mark_unread_chat_alt : Icons.check_circle,
-                          color: status == 'open' ? Colors.orange : Colors.green,
+                          status == 'open'
+                              ? Icons.mark_unread_chat_alt
+                              : Icons.check_circle,
+                          color: status == 'open'
+                              ? Colors.orange
+                              : Colors.green,
                         ),
                         title: Text(subject),
-                        subtitle: Text(createdAt != null ? '${createdAt.toLocal()}'.split(' ')[0] : ''),
+                        subtitle: Text(
+                          createdAt != null
+                              ? '${createdAt.toLocal()}'.split(' ')[0]
+                              : '',
+                        ),
                         trailing: Chip(label: Text(status)),
                       ),
                     );

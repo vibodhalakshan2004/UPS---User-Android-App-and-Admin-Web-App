@@ -17,6 +17,7 @@ import 'features/tracker/tracker_screen.dart';
 import 'auth/auth_service.dart';
 import 'features/home/about_screen.dart';
 import 'features/news/news_screen.dart';
+import 'features/news/news_detail_screen.dart';
 import 'features/complaints/complaints_screen.dart';
 
 // ThemeProvider is now defined in core/theme.dart
@@ -39,9 +40,7 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MultiProvider(
-      providers: [
-        ChangeNotifierProvider(create: (_) => AuthService()),
-      ],
+      providers: [ChangeNotifierProvider(create: (_) => AuthService())],
       child: Builder(
         builder: (context) {
           final auth = Provider.of<AuthService>(context, listen: false);
@@ -89,10 +88,7 @@ GoRouter _createRouter(AuthService authService) {
       return null;
     },
     routes: <RouteBase>[
-      GoRoute(
-        path: '/',
-        builder: (context, state) => const _SplashScreen(),
-      ),
+      GoRoute(path: '/', builder: (context, state) => const _SplashScreen()),
       GoRoute(path: '/auth', builder: (context, state) => const AuthScreen()),
       GoRoute(
         path: '/register',
@@ -120,6 +116,10 @@ GoRouter _createRouter(AuthService authService) {
           GoRoute(
             path: '/dashboard/news',
             builder: (context, state) => const NewsScreen(),
+          ),
+          GoRoute(
+            path: '/dashboard/news/:id',
+            builder: (context, state) => NewsDetailScreen(id: state.pathParameters['id']!),
           ),
           GoRoute(
             path: '/dashboard/complaints',
@@ -159,8 +159,6 @@ class _SplashScreen extends StatelessWidget {
   const _SplashScreen();
   @override
   Widget build(BuildContext context) {
-    return const Scaffold(
-      body: Center(child: CircularProgressIndicator()),
-    );
+    return const Scaffold(body: Center(child: CircularProgressIndicator()));
   }
 }

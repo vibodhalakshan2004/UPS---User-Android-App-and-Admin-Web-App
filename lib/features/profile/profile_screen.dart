@@ -197,7 +197,10 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       body: Padding(
         padding: const EdgeInsets.all(16.0),
         child: FutureBuilder<DocumentSnapshot>(
-          future: FirebaseFirestore.instance.collection('users').doc(user!.uid).get(),
+          future: FirebaseFirestore.instance
+              .collection('users')
+              .doc(user!.uid)
+              .get(),
           builder: (context, snapshot) {
             if (!snapshot.hasData) {
               return const Center(child: CircularProgressIndicator());
@@ -213,30 +216,48 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                 children: [
                   TextFormField(
                     controller: _nameCtrl,
-                    decoration: const InputDecoration(labelText: 'Full Name', border: OutlineInputBorder()),
-                    validator: (v) => v == null || v.trim().isEmpty ? 'Enter your name' : null,
+                    decoration: const InputDecoration(
+                      labelText: 'Full Name',
+                      border: OutlineInputBorder(),
+                    ),
+                    validator: (v) => v == null || v.trim().isEmpty
+                        ? 'Enter your name'
+                        : null,
                   ),
                   const SizedBox(height: 16),
                   TextFormField(
                     controller: _emailCtrl,
-                    decoration: const InputDecoration(labelText: 'Email', border: OutlineInputBorder()),
+                    decoration: const InputDecoration(
+                      labelText: 'Email',
+                      border: OutlineInputBorder(),
+                    ),
                     keyboardType: TextInputType.emailAddress,
                     validator: (v) {
-                      if (v == null || v.trim().isEmpty) return 'Enter your email';
+                      if (v == null || v.trim().isEmpty) {
+                        return 'Enter your email';
+                      }
                       final emailRegex = RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$');
-                      return emailRegex.hasMatch(v.trim()) ? null : 'Enter a valid email';
+                      return emailRegex.hasMatch(v.trim())
+                          ? null
+                          : 'Enter a valid email';
                     },
                   ),
                   const SizedBox(height: 16),
                   TextFormField(
                     controller: _phoneCtrl,
-                    decoration: const InputDecoration(labelText: 'Phone', border: OutlineInputBorder()),
+                    decoration: const InputDecoration(
+                      labelText: 'Phone',
+                      border: OutlineInputBorder(),
+                    ),
                     keyboardType: TextInputType.phone,
                   ),
                   const SizedBox(height: 16),
                   TextFormField(
                     controller: _addressCtrl,
-                    decoration: const InputDecoration(labelText: 'Address', border: OutlineInputBorder()),
+                    decoration: const InputDecoration(
+                      labelText: 'Address',
+                      border: OutlineInputBorder(),
+                    ),
                     minLines: 2,
                     maxLines: 3,
                   ),
@@ -253,7 +274,8 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                       try {
                         // Update auth email if changed
                         final newEmail = _emailCtrl.text.trim();
-                        if (newEmail.isNotEmpty && newEmail != (user.email ?? '')) {
+                        if (newEmail.isNotEmpty &&
+                            newEmail != (user.email ?? '')) {
                           // In recent FlutterFire versions, updating email should go through verification
                           // to prevent account hijacking. This will send a verification link to the new email
                           // and only apply the change after the user confirms.
@@ -262,7 +284,8 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                         }
 
                         // Optionally keep FirebaseAuth displayName in sync
-                        if ((_nameCtrl.text.trim()).isNotEmpty && _nameCtrl.text.trim() != (user.displayName ?? '')) {
+                        if ((_nameCtrl.text.trim()).isNotEmpty &&
+                            _nameCtrl.text.trim() != (user.displayName ?? '')) {
                           await user.updateDisplayName(_nameCtrl.text.trim());
                         }
                         // Update Firestore profile document. Do not overwrite the email yet if a
@@ -275,10 +298,14 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                         if (!emailChangeInitiated) {
                           updateData['email'] = newEmail;
                         }
-                        await FirebaseFirestore.instance.collection('users').doc(user.uid).update(updateData);
+                        await FirebaseFirestore.instance
+                            .collection('users')
+                            .doc(user.uid)
+                            .update(updateData);
                       } on FirebaseAuthException catch (e) {
                         if (e.code == 'requires-recent-login') {
-                          error = 'Please re-login and try updating your email again.';
+                          error =
+                              'Please re-login and try updating your email again.';
                         } else if (e.code == 'email-already-in-use') {
                           error = 'That email is already in use.';
                         } else if (e.code == 'invalid-email') {
@@ -290,9 +317,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                         error = 'Failed to update profile.';
                       }
                       if (error != null) {
-                        messenger.showSnackBar(
-                          SnackBar(content: Text(error)),
-                        );
+                        messenger.showSnackBar(SnackBar(content: Text(error)));
                         return;
                       }
                       if (emailChangeInitiated) {
@@ -334,7 +359,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                             ),
                             TextButton(
                               onPressed: () => Navigator.of(ctx).pop(true),
-                              style: TextButton.styleFrom(foregroundColor: Colors.red),
+                              style: TextButton.styleFrom(
+                                foregroundColor: Colors.red,
+                              ),
                               child: const Text('Delete'),
                             ),
                           ],
@@ -358,16 +385,21 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                       } on FirebaseAuthException catch (e) {
                         String msg;
                         if (e.code == 'requires-recent-login') {
-                          msg = 'Please re-login and try again to delete your account.';
+                          msg =
+                              'Please re-login and try again to delete your account.';
                         } else {
                           msg = 'Failed to delete account (${e.code}).';
                         }
                         messenger.showSnackBar(SnackBar(content: Text(msg)));
                       } catch (e) {
-                        messenger.showSnackBar(const SnackBar(content: Text('Failed to delete account.')));
+                        messenger.showSnackBar(
+                          const SnackBar(
+                            content: Text('Failed to delete account.'),
+                          ),
+                        );
                       }
                     },
-                  )
+                  ),
                 ],
               ),
             );
@@ -443,9 +475,13 @@ class _SecurityScreenState extends State<SecurityScreen> {
             children: [
               TextFormField(
                 controller: _passwordCtrl,
-                decoration: const InputDecoration(labelText: 'New Password', border: OutlineInputBorder()),
+                decoration: const InputDecoration(
+                  labelText: 'New Password',
+                  border: OutlineInputBorder(),
+                ),
                 obscureText: true,
-                validator: (v) => v != null && v.length >= 6 ? null : 'Min 6 characters',
+                validator: (v) =>
+                    v != null && v.length >= 6 ? null : 'Min 6 characters',
               ),
               const SizedBox(height: 8),
               Row(
@@ -454,7 +490,9 @@ class _SecurityScreenState extends State<SecurityScreen> {
                     child: LinearProgressIndicator(
                       value: _strength,
                       backgroundColor: Colors.grey.shade300,
-                      color: _strength < 0.6 ? Colors.red : (_strength < 0.8 ? Colors.orange : Colors.green),
+                      color: _strength < 0.6
+                          ? Colors.red
+                          : (_strength < 0.8 ? Colors.orange : Colors.green),
                       minHeight: 6,
                       borderRadius: const BorderRadius.all(Radius.circular(8)),
                     ),
@@ -466,9 +504,13 @@ class _SecurityScreenState extends State<SecurityScreen> {
               const SizedBox(height: 16),
               TextFormField(
                 controller: _confirmCtrl,
-                decoration: const InputDecoration(labelText: 'Confirm Password', border: OutlineInputBorder()),
+                decoration: const InputDecoration(
+                  labelText: 'Confirm Password',
+                  border: OutlineInputBorder(),
+                ),
                 obscureText: true,
-                validator: (v) => v == _passwordCtrl.text ? null : 'Passwords do not match',
+                validator: (v) =>
+                    v == _passwordCtrl.text ? null : 'Passwords do not match',
               ),
               const SizedBox(height: 24),
               ElevatedButton(
@@ -482,7 +524,8 @@ class _SecurityScreenState extends State<SecurityScreen> {
                     await auth.user?.updatePassword(_passwordCtrl.text);
                   } on FirebaseAuthException catch (e) {
                     if (e.code == 'requires-recent-login') {
-                      error = 'Please re-login and try again to change your password.';
+                      error =
+                          'Please re-login and try again to change your password.';
                     } else {
                       error = 'Failed to update password (${e.code}).';
                     }
@@ -496,7 +539,7 @@ class _SecurityScreenState extends State<SecurityScreen> {
                   navigator.pop();
                 },
                 child: const Text('Update Password'),
-              )
+              ),
             ],
           ),
         ),
@@ -546,7 +589,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
               if (context.mounted) Navigator.pop(context);
             },
             child: const Text('Save Preferences'),
-          )
+          ),
         ],
       ),
     );
