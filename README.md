@@ -1,16 +1,66 @@
-# myapp
+# 📦 UPS Application Suite
 
-A new Flutter project.
+<div align="center">
 
-## Getting Started
+![Flutter](https://img.shields.io/badge/Flutter-02569B?style=for-the-badge&logo=flutter&logoColor=white)
+![Firebase](https://img.shields.io/badge/Firebase-039BE5?style=for-the-badge&logo=Firebase&logoColor=white)
+![Dart](https://img.shields.io/badge/Dart-0175C2?style=for-the-badge&logo=dart&logoColor=white)
+![Material Design](https://img.shields.io/badge/Material%20Design-757575?style=for-the-badge&logo=material-design&logoColor=white)
 
-This project is a starting point for a Flutter application.
+**A comprehensive digital postal service platform built with Flutter & Firebase**
 
-A few resources to get you started if this is your first Flutter project:
+[🌐 Live Admin Panel](https://ups-app-7d001.web.app) • [📱 Demo](#demo) • [📖 Documentation](#documentation) • [🚀 Quick Start](#quick-start)
 
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
+</div>
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+---
+
+## 🎯 Overview
+
+The UPS Application Suite is a modern, full-stack digital postal service platform consisting of:
+
+- **📱 Mobile Application** - Customer-facing Flutter app for iOS, Android & Web
+- **🌐 Admin Panel** - Web-based administrative interface for service management
+- **🔥 Firebase Backend** - Scalable cloud infrastructure with real-time capabilities
+
+### ✨ Key Highlights
+
+- 🔐 **Secure Authentication** with Firebase Auth & Google Sign-In
+- 📍 **Real-time Package Tracking** with GPS integration
+- 💰 **Integrated Payment System** for taxes and services
+- 📊 **Comprehensive Admin Dashboard** with live analytics
+- 🎯 **Complaint Management** with priority handling
+- 📰 **Content Management** for news and updates
+- 🌐 **Progressive Web App** capabilities
+- 📱 **Responsive Design** across all devices
+
+---
+
+## 🚀 Quick Start
+
+### Prerequisites
+
+- Flutter SDK (3.9.0+)
+- Firebase CLI
+- Node.js (16.0+)
+- Git
+
+### Installation
+
+```bash
+# Clone repository
+git clone https://github.com/vibodhalakshan2004/myapp.git
+cd myapp
+
+# Install dependencies
+flutter pub get
+
+# Configure Firebase
+flutterfire configure
+
+# Run mobile app
+flutter run
+
+# Run admin panel
+cd admin_web
+flutter run -d chrome
