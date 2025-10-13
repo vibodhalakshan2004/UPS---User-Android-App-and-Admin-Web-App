@@ -119,7 +119,8 @@ GoRouter _createRouter(AuthService authService) {
           ),
           GoRoute(
             path: '/dashboard/news/:id',
-            builder: (context, state) => NewsDetailScreen(id: state.pathParameters['id']!),
+            builder: (context, state) =>
+                NewsDetailScreen(id: state.pathParameters['id']!),
           ),
           GoRoute(
             path: '/dashboard/complaints',

@@ -8,7 +8,10 @@ class NewsDetailScreen extends StatelessWidget {
 
   Future<void> _openUrl(String url) async {
     final uri = Uri.parse(url);
-    await url_launcher.launchUrl(uri, mode: url_launcher.LaunchMode.externalApplication);
+    await url_launcher.launchUrl(
+      uri,
+      mode: url_launcher.LaunchMode.externalApplication,
+    );
   }
 
   @override
@@ -17,7 +20,10 @@ class NewsDetailScreen extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(title: const Text('News')),
       body: StreamBuilder<DocumentSnapshot>(
-        stream: FirebaseFirestore.instance.collection('news').doc(id).snapshots(),
+        stream: FirebaseFirestore.instance
+            .collection('news')
+            .doc(id)
+            .snapshots(),
         builder: (context, snapshot) {
           if (snapshot.hasError) {
             return Center(child: Text('Error: ${snapshot.error}'));
@@ -37,10 +43,20 @@ class NewsDetailScreen extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(title, style: theme.textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold)),
+                Text(
+                  title,
+                  style: theme.textTheme.headlineSmall?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
                 if (date != null) ...[
                   const SizedBox(height: 6),
-                  Text('${date.toLocal()}'.split(' ')[0], style: theme.textTheme.bodySmall?.copyWith(color: Colors.grey[600])),
+                  Text(
+                    '${date.toLocal()}'.split(' ')[0],
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: Colors.grey[600],
+                    ),
+                  ),
                 ],
                 const SizedBox(height: 12),
                 Text(summary, style: theme.textTheme.bodyMedium),

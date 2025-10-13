@@ -39,7 +39,8 @@ class AppLogo extends StatelessWidget {
             const SizedBox(width: 8),
             Text(
               title,
-              style: titleStyle ??
+              style:
+                  titleStyle ??
                   theme.textTheme.titleLarge?.copyWith(
                     fontWeight: FontWeight.w700,
                     color: theme.colorScheme.onSurface,

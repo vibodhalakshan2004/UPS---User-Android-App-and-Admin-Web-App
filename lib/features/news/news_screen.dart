@@ -75,7 +75,12 @@ class NewsScreen extends StatelessWidget {
                         ),
                       ],
                       const SizedBox(height: 8),
-                      Text(summary, style: theme.textTheme.bodyMedium, maxLines: 3, overflow: TextOverflow.ellipsis),
+                      Text(
+                        summary,
+                        style: theme.textTheme.bodyMedium,
+                        maxLines: 3,
+                        overflow: TextOverflow.ellipsis,
+                      ),
                       const SizedBox(height: 12),
                       Align(
                         alignment: Alignment.centerRight,
@@ -83,7 +88,7 @@ class NewsScreen extends StatelessWidget {
                           onPressed: () => context.go('/dashboard/news/$id'),
                           child: const Text('Read more'),
                         ),
-                      )
+                      ),
                     ],
                   ),
                 ),

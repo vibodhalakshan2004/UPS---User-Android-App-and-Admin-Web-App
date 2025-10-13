@@ -5,11 +5,12 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import 'dart:async';
-import 'package:flutter/foundation.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart' as url_launcher;
+import 'package:flutter_map/flutter_map.dart';
+import 'package:latlong2/latlong.dart' as ll;
 
 import 'firebase_options.dart';
 import 'core/theme.dart';
@@ -182,11 +183,16 @@ GoRouter _router(AuthService auth, RolesService roles) => GoRouter(
     ),
     GoRoute(
       path: '/news/:id',
-      builder: (context, state) => NewsDetailScreen(id: state.pathParameters['id']!),
+      builder: (context, state) =>
+          NewsDetailScreen(id: state.pathParameters['id']!),
     ),
     GoRoute(
       path: '/users',
       builder: (context, state) => const UsersAdminScreen(),
+    ),
+    GoRoute(
+      path: '/tracker',
+      builder: (context, state) => const AdminTrackerScreen(),
     ),
   ],
 );
@@ -397,6 +403,7 @@ class AdminDashboard extends StatelessWidget {
                 _Tile('Complaints', '/complaints', Icons.report),
                 _Tile('News', '/news', Icons.newspaper),
                 _Tile('Users', '/users', Icons.people),
+                _Tile('Tracker', '/tracker', Icons.map),
               ],
             ),
             const SizedBox(height: 16),
@@ -426,7 +433,12 @@ class _RecentBookings extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Recent Bookings', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600)),
+            Text(
+              'Recent Bookings',
+              style: Theme.of(
+                context,
+              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
+            ),
             const SizedBox(height: 8),
             StreamBuilder<QuerySnapshot>(
               stream: FirebaseFirestore.instance
@@ -435,7 +447,8 @@ class _RecentBookings extends StatelessWidget {
                   .limit(5)
                   .snapshots(),
               builder: (context, snapshot) {
-                if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
+                if (!snapshot.hasData)
+                  return const Center(child: CircularProgressIndicator());
                 final docs = snapshot.data!.docs;
                 if (docs.isEmpty) return const Text('No recent bookings');
                 return Column(
@@ -443,9 +456,25 @@ class _RecentBookings extends StatelessWidget {
                     for (final d in docs)
                       ListTile(
                         dense: true,
-                        title: Text(((d.data() as Map<String, dynamic>)['bookingType'] ?? '').toString()),
-                        subtitle: Text(((d.data() as Map<String, dynamic>)['bookingDate'] as Timestamp).toDate().toLocal().toString().split(' ')[0]),
-                        trailing: Chip(label: Text(((d.data() as Map<String, dynamic>)['status'] ?? '').toString())),
+                        title: Text(
+                          ((d.data() as Map<String, dynamic>)['bookingType'] ??
+                                  '')
+                              .toString(),
+                        ),
+                        subtitle: Text(
+                          ((d.data() as Map<String, dynamic>)['bookingDate']
+                                  as Timestamp)
+                              .toDate()
+                              .toLocal()
+                              .toString()
+                              .split(' ')[0],
+                        ),
+                        trailing: Chip(
+                          label: Text(
+                            ((d.data() as Map<String, dynamic>)['status'] ?? '')
+                                .toString(),
+                          ),
+                        ),
                       ),
                   ],
                 );
@@ -469,7 +498,12 @@ class _RecentComplaints extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Recent Complaints', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600)),
+            Text(
+              'Recent Complaints',
+              style: Theme.of(
+                context,
+              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
+            ),
             const SizedBox(height: 8),
             StreamBuilder<QuerySnapshot>(
               stream: FirebaseFirestore.instance
@@ -478,7 +512,8 @@ class _RecentComplaints extends StatelessWidget {
                   .limit(5)
                   .snapshots(),
               builder: (context, snapshot) {
-                if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
+                if (!snapshot.hasData)
+                  return const Center(child: CircularProgressIndicator());
                 final docs = snapshot.data!.docs;
                 if (docs.isEmpty) return const Text('No recent complaints');
                 return Column(
@@ -486,8 +521,14 @@ class _RecentComplaints extends StatelessWidget {
                     for (final d in docs)
                       ListTile(
                         dense: true,
-                        title: Text(((d.data() as Map<String, dynamic>)['subject'] ?? '').toString()),
-                        subtitle: Text(((d.data() as Map<String, dynamic>)['status'] ?? '').toString()),
+                        title: Text(
+                          ((d.data() as Map<String, dynamic>)['subject'] ?? '')
+                              .toString(),
+                        ),
+                        subtitle: Text(
+                          ((d.data() as Map<String, dynamic>)['status'] ?? '')
+                              .toString(),
+                        ),
                       ),
                   ],
                 );
@@ -507,7 +548,12 @@ class _StatCard extends StatefulWidget {
   final IconData icon;
   final _StatQuery queryType;
   final String? route;
-  const _StatCard({required this.title, required this.icon, required this.queryType, this.route});
+  const _StatCard({
+    required this.title,
+    required this.icon,
+    required this.queryType,
+    this.route,
+  });
 
   @override
   State<_StatCard> createState() => _StatCardState();
@@ -528,9 +574,21 @@ class _StatCardState extends State<_StatCard> {
       case _StatQuery.users:
         return (await db.collection('users').count().get()).count ?? 0;
       case _StatQuery.complaintsOpen:
-        return (await db.collection('complaints').where('status', isEqualTo: 'open').count().get()).count ?? 0;
+        return (await db
+                    .collection('complaints')
+                    .where('status', isEqualTo: 'open')
+                    .count()
+                    .get())
+                .count ??
+            0;
       case _StatQuery.bookingsPending:
-        return (await db.collection('bookings').where('status', isEqualTo: 'pending').count().get()).count ?? 0;
+        return (await db
+                    .collection('bookings')
+                    .where('status', isEqualTo: 'pending')
+                    .count()
+                    .get())
+                .count ??
+            0;
       case _StatQuery.news:
         return (await db.collection('news').count().get()).count ?? 0;
     }
@@ -546,17 +604,28 @@ class _StatCardState extends State<_StatCard> {
         children: [
           Icon(widget.icon, size: 26, color: color.secondary),
           const SizedBox(height: 6),
-          Text(widget.title, style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600)),
+          Text(
+            widget.title,
+            style: Theme.of(
+              context,
+            ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
+          ),
           const SizedBox(height: 4),
           FutureBuilder<int>(
             future: _future,
             builder: (context, snapshot) {
               if (!snapshot.hasData) {
-                return const SizedBox(height: 18, width: 18, child: CircularProgressIndicator(strokeWidth: 2));
+                return const SizedBox(
+                  height: 18,
+                  width: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                );
               }
               return Text(
                 snapshot.data!.toString(),
-                style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
+                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                  fontWeight: FontWeight.bold,
+                ),
               );
             },
           ),
@@ -632,6 +701,12 @@ class _Nav extends StatelessWidget {
             title: const Text('Users'),
             onTap: () => context.go('/users'),
           ),
+          ListTile(
+            dense: true,
+            visualDensity: const VisualDensity(horizontal: -2, vertical: -2),
+            title: const Text('Tracker'),
+            onTap: () => context.go('/tracker'),
+          ),
           const Divider(),
           ListTile(
             dense: true,
@@ -660,7 +735,8 @@ class _Logo extends StatelessWidget {
       width: 32,
       height: 32,
       fit: BoxFit.contain,
-      errorBuilder: (context, error, stack) => const Icon(Icons.apartment, size: 28),
+      errorBuilder: (context, error, stack) =>
+          const Icon(Icons.apartment, size: 28),
     );
   }
 }
@@ -690,14 +766,567 @@ class _Tile extends StatelessWidget {
               const SizedBox(height: 6),
               Text(
                 title,
-                style: Theme.of(context)
-                    .textTheme
-                    .titleSmall
-                    ?.copyWith(fontWeight: FontWeight.w600),
+                style: Theme.of(
+                  context,
+                ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
               ),
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+class AdminTrackerScreen extends StatefulWidget {
+  const AdminTrackerScreen({super.key});
+
+  @override
+  State<AdminTrackerScreen> createState() => _AdminTrackerScreenState();
+}
+
+class _AdminTrackerScreenState extends State<AdminTrackerScreen> {
+  static const ll.LatLng _center = ll.LatLng(7.45, 80.03); // Udubaddawa area
+  final MapController _mapController = MapController();
+
+  Stream<List<_AdminMapItem>> _itemsStream() {
+    final vehicles = FirebaseFirestore.instance
+        .collection('vehicles')
+        .where('active', isEqualTo: true)
+        .snapshots()
+        .map(
+          (s) => s.docs
+              .map((d) => _AdminMapItem.fromDoc(d, isVehicle: true))
+              .toList(),
+        )
+        .handleError((_) => <_AdminMapItem>[]);
+    final bins = FirebaseFirestore.instance
+        .collection('bins')
+        .snapshots()
+        .map(
+          (s) => s.docs
+              .map((d) => _AdminMapItem.fromDoc(d, isVehicle: false))
+              .toList(),
+        )
+        .handleError((_) => <_AdminMapItem>[]);
+    return vehicles
+        .asyncMap((v) async {
+          final b = await bins.first;
+          final list = <_AdminMapItem>[]
+            ..addAll(v)
+            ..addAll(b);
+          if (list.isEmpty) {
+            return [
+              _AdminMapItem(
+                id: 'truck_demo',
+                name: 'Waste Truck 1',
+                position: const ll.LatLng(5.6237, -0.1970),
+                isVehicle: true,
+              ),
+              _AdminMapItem(
+                id: 'bin_demo',
+                name: 'Community Bin',
+                position: const ll.LatLng(5.6037, -0.1870),
+                isVehicle: false,
+              ),
+            ];
+          }
+          return list;
+        })
+        .handleError(
+          (_) => <_AdminMapItem>[
+            _AdminMapItem(
+              id: 'truck_demo',
+              name: 'Waste Truck 1',
+              position: const ll.LatLng(5.6237, -0.1970),
+              isVehicle: true,
+            ),
+            _AdminMapItem(
+              id: 'bin_demo',
+              name: 'Community Bin',
+              position: const ll.LatLng(5.6037, -0.1870),
+              isVehicle: false,
+            ),
+          ],
+        );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Row(
+          children: [_Logo(), const SizedBox(width: 8), const Text('Tracker')],
+        ),
+      ),
+      drawer: const _Nav(),
+      floatingActionButton: _TrackerActions(onChanged: () => setState(() {})),
+      body: StreamBuilder<List<_AdminMapItem>>(
+        stream: _itemsStream(),
+        builder: (context, snapshot) {
+          final items = snapshot.data ?? const <_AdminMapItem>[];
+          return Column(
+            children: [
+              Expanded(
+                child: FlutterMap(
+                  mapController: _mapController,
+                  options: const MapOptions(
+                    initialCenter: _center,
+                    initialZoom: 12,
+                    // interactionOptions: InteractionOptions(flags: InteractiveFlag.all),
+                  ),
+                  children: [
+                    TileLayer(
+                      urlTemplate:
+                          'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+                      subdomains: const ['a', 'b', 'c'],
+                      userAgentPackageName: 'lk.gov.ups.admin',
+                      tileProvider: NetworkTileProvider(),
+                    ),
+                    RichAttributionWidget(
+                      attributions: const [
+                        TextSourceAttribution('© OpenStreetMap contributors'),
+                      ],
+                    ),
+                    MarkerLayer(
+                      markers: [
+                        for (final it in items)
+                          Marker(
+                            width: 44,
+                            height: 44,
+                            point: it.position,
+                            child: _AdminMarkerIcon(
+                              isVehicle: it.isVehicle,
+                              label: it.name,
+                            ),
+                          ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              _TrackerLegend(items: items),
+              const SizedBox(height: 8),
+              // Zoom buttons overlay
+              Align(
+                alignment: Alignment.topRight,
+                child: Padding(
+                  padding: const EdgeInsets.only(right: 12),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Material(
+                        color: Colors.white,
+                        shape: const CircleBorder(),
+                        elevation: 3,
+                        child: IconButton(
+                          icon: const Icon(Icons.add),
+                          onPressed: () {
+                            final z = _mapController.camera.zoom;
+                            final c = _mapController.camera.center;
+                            _mapController.move(c, z + 1);
+                          },
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Material(
+                        color: Colors.white,
+                        shape: const CircleBorder(),
+                        elevation: 3,
+                        child: IconButton(
+                          icon: const Icon(Icons.remove),
+                          onPressed: () {
+                            final z = _mapController.camera.zoom;
+                            final c = _mapController.camera.center;
+                            _mapController.move(c, z - 1);
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              _TrackerCrudPanel(onChanged: () => setState(() {})),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _AdminMarkerIcon extends StatelessWidget {
+  final bool isVehicle;
+  final String label;
+  const _AdminMarkerIcon({required this.isVehicle, required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    final color = isVehicle ? Colors.green : Colors.blue;
+    final icon = isVehicle ? Icons.local_shipping : Icons.delete_outline;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          decoration: BoxDecoration(
+            color: color.withAlpha(230),
+            shape: BoxShape.circle,
+            boxShadow: const [BoxShadow(blurRadius: 6, color: Colors.black26)],
+          ),
+          padding: const EdgeInsets.all(6),
+          child: Icon(icon, color: Colors.white, size: 16),
+        ),
+        const SizedBox(height: 4),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+          decoration: BoxDecoration(
+            color: Colors.black87,
+            borderRadius: BorderRadius.circular(6),
+          ),
+          child: Text(
+            label,
+            style: const TextStyle(color: Colors.white, fontSize: 10),
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _AdminMapItem {
+  final String id;
+  final String name;
+  final ll.LatLng position;
+  final bool isVehicle;
+
+  const _AdminMapItem({
+    required this.id,
+    required this.name,
+    required this.position,
+    required this.isVehicle,
+  });
+
+  factory _AdminMapItem.fromDoc(
+    DocumentSnapshot<Map<String, dynamic>> doc, {
+    required bool isVehicle,
+  }) {
+    final data = doc.data() ?? {};
+    final lat = (data['lat'] as num?)?.toDouble();
+    final lng = (data['lng'] as num?)?.toDouble();
+    final name = (data['name'] as String?) ?? (isVehicle ? 'Vehicle' : 'Bin');
+    return _AdminMapItem(
+      id: doc.id,
+      name: name,
+      position: (lat != null && lng != null)
+          ? ll.LatLng(lat, lng)
+          : _AdminTrackerScreenState._center,
+      isVehicle: isVehicle,
+    );
+  }
+}
+
+class _TrackerLegend extends StatelessWidget {
+  final List<_AdminMapItem> items;
+  const _TrackerLegend({required this.items});
+
+  @override
+  Widget build(BuildContext context) {
+    final trucks = items.where((e) => e.isVehicle).length;
+    final bins = items.where((e) => !e.isVehicle).length;
+    return Padding(
+      padding: const EdgeInsets.all(12.0),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+        children: [
+          _chip(Icons.local_shipping, Colors.green, '$trucks Active Trucks'),
+          _chip(Icons.delete_outline, Colors.blue, '$bins Bins'),
+        ],
+      ),
+    );
+  }
+
+  Widget _chip(IconData icon, Color color, String label) {
+    return Chip(
+      avatar: CircleAvatar(
+        backgroundColor: color,
+        child: Icon(icon, color: Colors.white, size: 16),
+      ),
+      label: Text(label),
+    );
+  }
+}
+
+class _TrackerActions extends StatelessWidget {
+  final VoidCallback onChanged;
+  const _TrackerActions({required this.onChanged});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        FloatingActionButton.extended(
+          heroTag: 'addVehicle',
+          onPressed: () => _showVehicleDialog(context),
+          icon: const Icon(Icons.local_shipping),
+          label: const Text('Add Truck'),
+        ),
+        const SizedBox(height: 8),
+        FloatingActionButton.extended(
+          heroTag: 'addBin',
+          onPressed: () => _showBinDialog(context),
+          icon: const Icon(Icons.delete_outline),
+          label: const Text('Add Bin'),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _showVehicleDialog(BuildContext context, {String? id, Map<String, dynamic>? existing}) async {
+    final name = TextEditingController(text: existing?['name'] as String? ?? '');
+    final lat = TextEditingController(text: (existing?['lat']?.toString()) ?? '');
+    final lng = TextEditingController(text: (existing?['lng']?.toString()) ?? '');
+    bool active = (existing?['active'] as bool?) ?? true;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: Text(id == null ? 'Add Truck' : 'Edit Truck'),
+        content: SizedBox(
+          width: 420,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(controller: name, decoration: const InputDecoration(labelText: 'Name')),
+              TextField(controller: lat, decoration: const InputDecoration(labelText: 'Latitude'), keyboardType: TextInputType.number),
+              TextField(controller: lng, decoration: const InputDecoration(labelText: 'Longitude'), keyboardType: TextInputType.number),
+              Row(children: [
+                Checkbox(value: active, onChanged: (v){ active = v ?? true; (c as Element).markNeedsBuild(); }),
+                const Text('Active')
+              ])
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(c).pop(false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.of(c).pop(true), child: const Text('Save')),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    final data = {
+      'name': name.text.trim(),
+      'lat': double.tryParse(lat.text.trim()) ?? 0.0,
+      'lng': double.tryParse(lng.text.trim()) ?? 0.0,
+      'active': active,
+      'updatedAt': FieldValue.serverTimestamp(),
+    };
+    final col = FirebaseFirestore.instance.collection('vehicles');
+    if (id == null) {
+      await col.add(data);
+      await AuditLog.log('vehicle_create', data);
+    } else {
+      await col.doc(id).update(data);
+      await AuditLog.log('vehicle_update', {'id': id, ...data});
+    }
+    onChanged();
+  }
+
+  Future<void> _showBinDialog(BuildContext context, {String? id, Map<String, dynamic>? existing}) async {
+    final name = TextEditingController(text: existing?['name'] as String? ?? '');
+    final lat = TextEditingController(text: (existing?['lat']?.toString()) ?? '');
+    final lng = TextEditingController(text: (existing?['lng']?.toString()) ?? '');
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: Text(id == null ? 'Add Bin' : 'Edit Bin'),
+        content: SizedBox(
+          width: 420,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(controller: name, decoration: const InputDecoration(labelText: 'Name')),
+              TextField(controller: lat, decoration: const InputDecoration(labelText: 'Latitude'), keyboardType: TextInputType.number),
+              TextField(controller: lng, decoration: const InputDecoration(labelText: 'Longitude'), keyboardType: TextInputType.number),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(c).pop(false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.of(c).pop(true), child: const Text('Save')),
+        ],
+      ),
+    );
+    if (ok == true) {
+      final data = {
+        'name': name.text.trim(),
+        'lat': double.tryParse(lat.text.trim()) ?? 0.0,
+        'lng': double.tryParse(lng.text.trim()) ?? 0.0,
+        'updatedAt': FieldValue.serverTimestamp(),
+      };
+      final col = FirebaseFirestore.instance.collection('bins');
+      if (id == null) {
+        await col.add(data);
+        await AuditLog.log('bin_create', data);
+      } else {
+        await col.doc(id).update(data);
+        await AuditLog.log('bin_update', {'id': id, ...data});
+      }
+      onChanged();
+    }
+  }
+}
+
+class _TrackerCrudPanel extends StatelessWidget {
+  final VoidCallback onChanged;
+  const _TrackerCrudPanel({required this.onChanged});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(child: _VehiclesList(onChanged: onChanged)),
+          const SizedBox(width: 12),
+          Expanded(child: _BinsList(onChanged: onChanged)),
+        ],
+      ),
+    );
+  }
+}
+
+class _VehiclesList extends StatelessWidget {
+  final VoidCallback onChanged;
+  const _VehiclesList({required this.onChanged});
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          ListTile(
+            title: const Text('Trucks'),
+            trailing: IconButton(
+              tooltip: 'Add Truck',
+              icon: const Icon(Icons.add),
+              onPressed: () => _TrackerActions(onChanged: onChanged)._showVehicleDialog(context),
+            ),
+          ),
+          SizedBox(
+            height: 220,
+            child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+              stream: FirebaseFirestore.instance.collection('vehicles').snapshots(),
+              builder: (context, snapshot) {
+                if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
+                final docs = snapshot.data!.docs;
+                if (docs.isEmpty) return const Center(child: Text('No trucks added yet'));
+                return ListView.builder(
+                  itemCount: docs.length,
+                  itemBuilder: (_, i) {
+                    final doc = docs[i];
+                    final d = doc.data();
+                    final active = (d['active'] as bool?) ?? false;
+                    return ListTile(
+                      dense: true,
+                      title: Text(d['name']?.toString() ?? doc.id),
+                      subtitle: Text('(${d['lat']}, ${d['lng']})'),
+                      leading: Icon(active ? Icons.check_circle : Icons.radio_button_unchecked, color: active ? Colors.green : null),
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          IconButton(
+                            tooltip: 'Edit',
+                            icon: const Icon(Icons.edit),
+                            onPressed: () => _TrackerActions(onChanged: onChanged)._showVehicleDialog(context, id: doc.id, existing: d),
+                          ),
+                          IconButton(
+                            tooltip: 'Delete',
+                            icon: const Icon(Icons.delete),
+                            onPressed: () async {
+                              await FirebaseFirestore.instance.collection('vehicles').doc(doc.id).delete();
+                              await AuditLog.log('vehicle_delete', {'id': doc.id});
+                              onChanged();
+                            },
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _BinsList extends StatelessWidget {
+  final VoidCallback onChanged;
+  const _BinsList({required this.onChanged});
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          ListTile(
+            title: const Text('Bins'),
+            trailing: IconButton(
+              tooltip: 'Add Bin',
+              icon: const Icon(Icons.add),
+              onPressed: () => _TrackerActions(onChanged: onChanged)._showBinDialog(context),
+            ),
+          ),
+          SizedBox(
+            height: 220,
+            child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+              stream: FirebaseFirestore.instance.collection('bins').snapshots(),
+              builder: (context, snapshot) {
+                if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
+                final docs = snapshot.data!.docs;
+                if (docs.isEmpty) return const Center(child: Text('No bins added yet'));
+                return ListView.builder(
+                  itemCount: docs.length,
+                  itemBuilder: (_, i) {
+                    final doc = docs[i];
+                    final d = doc.data();
+                    return ListTile(
+                      dense: true,
+                      title: Text(d['name']?.toString() ?? doc.id),
+                      subtitle: Text('(${d['lat']}, ${d['lng']})'),
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          IconButton(
+                            tooltip: 'Edit',
+                            icon: const Icon(Icons.edit),
+                            onPressed: () => _TrackerActions(onChanged: onChanged)._showBinDialog(context, id: doc.id, existing: d),
+                          ),
+                          IconButton(
+                            tooltip: 'Delete',
+                            icon: const Icon(Icons.delete),
+                            onPressed: () async {
+                              await FirebaseFirestore.instance.collection('bins').doc(doc.id).delete();
+                              await AuditLog.log('bin_delete', {'id': doc.id});
+                              onChanged();
+                            },
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                );
+              },
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -711,11 +1340,7 @@ class BookingsAdminScreen extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(
         title: Row(
-          children: [
-            _Logo(),
-            const SizedBox(width: 8),
-            const Text('Bookings'),
-          ],
+          children: [_Logo(), const SizedBox(width: 8), const Text('Bookings')],
         ),
       ),
       drawer: const _Nav(),
@@ -834,8 +1459,14 @@ class BookingsAdminScreen extends StatelessWidget {
                         return DropdownButton<String>(
                           value: v,
                           items: const [
-                            DropdownMenuItem(value: 'ground', child: Text('Ground')),
-                            DropdownMenuItem(value: 'cemetery', child: Text('Cemetery')),
+                            DropdownMenuItem(
+                              value: 'ground',
+                              child: Text('Ground'),
+                            ),
+                            DropdownMenuItem(
+                              value: 'cemetery',
+                              child: Text('Cemetery'),
+                            ),
                           ],
                           onChanged: (nv) {
                             type.value = nv ?? 'ground';
@@ -869,7 +1500,9 @@ class BookingsAdminScreen extends StatelessWidget {
                           padding: const EdgeInsets.only(bottom: 8.0),
                           child: TextField(
                             controller: memberEmailCtrl,
-                            decoration: const InputDecoration(labelText: 'Member email'),
+                            decoration: const InputDecoration(
+                              labelText: 'Member email',
+                            ),
                           ),
                         )
                       : const SizedBox.shrink(),
@@ -877,7 +1510,11 @@ class BookingsAdminScreen extends StatelessWidget {
                 Row(
                   children: [
                     Expanded(
-                      child: Text(date == null ? 'Date: not set' : 'Date: ${date!.toLocal()}'.split(' ')[0]),
+                      child: Text(
+                        date == null
+                            ? 'Date: not set'
+                            : 'Date: ${date!.toLocal()}'.split(' ')[0],
+                      ),
                     ),
                     const SizedBox(width: 8),
                     TextButton(
@@ -890,20 +1527,35 @@ class BookingsAdminScreen extends StatelessWidget {
                           lastDate: DateTime(now.year + 2),
                         );
                         if (picked != null) {
-                          date = DateTime(picked.year, picked.month, picked.day);
+                          date = DateTime(
+                            picked.year,
+                            picked.month,
+                            picked.day,
+                          );
                           // fetch approved bookings for this date to calculate slot availability
                           final qs = await FirebaseFirestore.instance
                               .collection('bookings')
-                              .where('bookingDate', isEqualTo: Timestamp.fromDate(date!))
+                              .where(
+                                'bookingDate',
+                                isEqualTo: Timestamp.fromDate(date!),
+                              )
                               .get();
-                          final approved = qs.docs.where((d) => (d.data()['status'] as String?) == 'approved');
+                          final approved = qs.docs.where(
+                            (d) =>
+                                (d.data()['status'] as String?) == 'approved',
+                          );
                           dateBooked = approved.isNotEmpty;
                           final Set<String> slots = {};
-                          final regex = RegExp(r'Time:\s*([0-9: ]+(AM|PM))', caseSensitive: false);
+                          final regex = RegExp(
+                            r'Time:\s*([0-9: ]+(AM|PM))',
+                            caseSensitive: false,
+                          );
                           for (final d in approved) {
-                            final reason = (d.data()['bookingReason'] as String?) ?? '';
+                            final reason =
+                                (d.data()['bookingReason'] as String?) ?? '';
                             final m = regex.firstMatch(reason);
-                            if (m != null) slots.add(m.group(1)!.toUpperCase().trim());
+                            if (m != null)
+                              slots.add(m.group(1)!.toUpperCase().trim());
                           }
                           bookedSlots = slots;
                           (c as Element).markNeedsBuild();
@@ -917,7 +1569,12 @@ class BookingsAdminScreen extends StatelessWidget {
                   const SizedBox(height: 8),
                   Align(
                     alignment: Alignment.centerLeft,
-                    child: Text('Time Slot', style: Theme.of(c).textTheme.bodyLarge?.copyWith(fontWeight: FontWeight.w600)),
+                    child: Text(
+                      'Time Slot',
+                      style: Theme.of(c).textTheme.bodyLarge?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
                   ),
                   const SizedBox(height: 8),
                   Wrap(
@@ -926,7 +1583,11 @@ class BookingsAdminScreen extends StatelessWidget {
                     children: [
                       for (final s in const ['12:00 PM', '2:00 PM', '4:00 PM'])
                         ChoiceChip(
-                          label: Text((dateBooked || bookedSlots.contains(s)) ? '$s (Booked)' : s),
+                          label: Text(
+                            (dateBooked || bookedSlots.contains(s))
+                                ? '$s (Booked)'
+                                : s,
+                          ),
                           selected: cemeterySlot == s,
                           onSelected: (sel) {
                             if (dateBooked || bookedSlots.contains(s)) return;
@@ -941,7 +1602,9 @@ class BookingsAdminScreen extends StatelessWidget {
                     children: [
                       Expanded(
                         child: Text(
-                          deathCertName == null ? 'Death Certificate: none' : 'Attached: $deathCertName',
+                          deathCertName == null
+                              ? 'Death Certificate: none'
+                              : 'Attached: $deathCertName',
                           overflow: TextOverflow.ellipsis,
                         ),
                       ),
@@ -952,14 +1615,25 @@ class BookingsAdminScreen extends StatelessWidget {
                             allowMultiple: false,
                             withData: true,
                             type: FileType.custom,
-                            allowedExtensions: const ['pdf', 'png', 'jpg', 'jpeg'],
+                            allowedExtensions: const [
+                              'pdf',
+                              'png',
+                              'jpg',
+                              'jpeg',
+                            ],
                           );
                           if (res == null || res.files.isEmpty) return;
                           final f = res.files.single;
                           if (f.bytes == null) return;
                           try {
-                            final storageRef = FirebaseStorage.instance.ref().child('death_certificates/${DateTime.now().millisecondsSinceEpoch}_${f.name}');
-                            final meta = SettableMetadata(contentType: (f.extension == 'pdf') ? 'application/pdf' : 'image/${f.extension}');
+                            final storageRef = FirebaseStorage.instance.ref().child(
+                              'death_certificates/${DateTime.now().millisecondsSinceEpoch}_${f.name}',
+                            );
+                            final meta = SettableMetadata(
+                              contentType: (f.extension == 'pdf')
+                                  ? 'application/pdf'
+                                  : 'image/${f.extension}',
+                            );
                             await storageRef.putData(f.bytes!, meta);
                             deathCertUrl = await storageRef.getDownloadURL();
                             deathCertName = f.name;
@@ -967,7 +1641,9 @@ class BookingsAdminScreen extends StatelessWidget {
                           } catch (_) {}
                         },
                         icon: const Icon(Icons.upload_file),
-                        label: Text(deathCertUrl == null ? 'Attach file' : 'Re-attach'),
+                        label: Text(
+                          deathCertUrl == null ? 'Attach file' : 'Re-attach',
+                        ),
                       ),
                     ],
                   ),
@@ -975,23 +1651,42 @@ class BookingsAdminScreen extends StatelessWidget {
                 if (type.value == 'ground') ...[
                   const SizedBox(height: 8),
                   TextField(
-                    decoration: const InputDecoration(labelText: 'Preferred Time (e.g., 3:30 PM)'),
+                    decoration: const InputDecoration(
+                      labelText: 'Preferred Time (e.g., 3:30 PM)',
+                    ),
                     onChanged: (v) => groundTime = v,
                   ),
                 ],
                 const SizedBox(height: 8),
-                TextField(controller: reasonCtrl, decoration: const InputDecoration(labelText: 'Reason')),
+                TextField(
+                  controller: reasonCtrl,
+                  decoration: const InputDecoration(labelText: 'Reason'),
+                ),
                 const SizedBox(height: 8),
-                TextField(controller: nameCtrl, decoration: const InputDecoration(labelText: 'Visitor name')),
+                TextField(
+                  controller: nameCtrl,
+                  decoration: const InputDecoration(labelText: 'Visitor name'),
+                ),
                 const SizedBox(height: 8),
-                TextField(controller: phoneCtrl, decoration: const InputDecoration(labelText: 'Visitor phone')),
+                TextField(
+                  controller: phoneCtrl,
+                  decoration: const InputDecoration(labelText: 'Visitor phone'),
+                ),
                 const SizedBox(height: 8),
-                TextField(controller: notesCtrl, decoration: const InputDecoration(labelText: 'Notes'), minLines: 1, maxLines: 3),
+                TextField(
+                  controller: notesCtrl,
+                  decoration: const InputDecoration(labelText: 'Notes'),
+                  minLines: 1,
+                  maxLines: 3,
+                ),
               ],
             ),
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.of(c).pop(false), child: const Text('Cancel')),
+            TextButton(
+              onPressed: () => Navigator.of(c).pop(false),
+              child: const Text('Cancel'),
+            ),
             ElevatedButton(
               onPressed: () async {
                 if (date == null) return;
@@ -1004,7 +1699,9 @@ class BookingsAdminScreen extends StatelessWidget {
                 final user = FirebaseAuth.instance.currentUser;
                 final data = <String, dynamic>{
                   'bookingType': type.value,
-                  'bookingDate': Timestamp.fromDate(DateTime(date!.year, date!.month, date!.day)),
+                  'bookingDate': Timestamp.fromDate(
+                    DateTime(date!.year, date!.month, date!.day),
+                  ),
                   'status': 'approved',
                   'createdAt': FieldValue.serverTimestamp(),
                   'createdBy': user?.uid,
@@ -1015,14 +1712,20 @@ class BookingsAdminScreen extends StatelessWidget {
                 };
                 // Compose booking reason and include time info
                 var r = reasonCtrl.text.trim();
-                final timeText = type.value == 'cemetery' ? cemeterySlot : groundTime;
+                final timeText = type.value == 'cemetery'
+                    ? cemeterySlot
+                    : groundTime;
                 if (timeText != null && timeText.trim().isNotEmpty) {
-                  r = r.isEmpty ? 'Time: ${timeText.trim()}' : '$r | Time: ${timeText.trim()}';
+                  r = r.isEmpty
+                      ? 'Time: ${timeText.trim()}'
+                      : '$r | Time: ${timeText.trim()}';
                 }
                 if (r.isNotEmpty) data['bookingReason'] = r;
 
-                if (deathCertUrl != null) data['deathCertificateUrl'] = deathCertUrl;
-                if (deathCertName != null) data['deathCertificateName'] = deathCertName;
+                if (deathCertUrl != null)
+                  data['deathCertificateUrl'] = deathCertUrl;
+                if (deathCertName != null)
+                  data['deathCertificateName'] = deathCertName;
 
                 // Optionally assign to an existing user by email
                 final email = memberEmailCtrl.text.trim();
@@ -1036,8 +1739,13 @@ class BookingsAdminScreen extends StatelessWidget {
                     data['userId'] = q.docs.first.id;
                   }
                 }
-                final doc = await FirebaseFirestore.instance.collection('bookings').add(data);
-                await AuditLog.log('booking_created_manual', {'id': doc.id, ...data});
+                final doc = await FirebaseFirestore.instance
+                    .collection('bookings')
+                    .add(data);
+                await AuditLog.log('booking_created_manual', {
+                  'id': doc.id,
+                  ...data,
+                });
                 if (c.mounted) Navigator.of(c).pop(true);
               },
               child: const Text('Create'),
@@ -1051,9 +1759,14 @@ class BookingsAdminScreen extends StatelessWidget {
     }
   }
 
-  Future<void> _viewBooking(BuildContext context, String id, Map<String, dynamic> data) async {
+  Future<void> _viewBooking(
+    BuildContext context,
+    String id,
+    Map<String, dynamic> data,
+  ) async {
     String fmtDate(dynamic ts) {
-      if (ts is Timestamp) return ts.toDate().toLocal().toString().split(' ')[0];
+      if (ts is Timestamp)
+        return ts.toDate().toLocal().toString().split(' ')[0];
       if (ts is DateTime) return ts.toLocal().toString().split(' ')[0];
       return ts?.toString() ?? '';
     }
@@ -1062,11 +1775,18 @@ class BookingsAdminScreen extends StatelessWidget {
       if (value == null || value.isEmpty) return;
       await Clipboard.setData(ClipboardData(text: value));
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$label copied')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('$label copied')));
     }
 
     final rows = <Widget>[];
-    void addRow(String label, String? value, {bool multiline = false, bool copyable = true}) {
+    void addRow(
+      String label,
+      String? value, {
+      bool multiline = false,
+      bool copyable = true,
+    }) {
       rows.add(
         ListTile(
           title: Text(label),
@@ -1113,10 +1833,7 @@ class BookingsAdminScreen extends StatelessWidget {
         actions: [
           TextButton(
             onPressed: () async {
-              final json = {
-                'id': id,
-                ...data,
-              }.toString();
+              final json = {'id': id, ...data}.toString();
               await Clipboard.setData(ClipboardData(text: json));
               if (c.mounted) Navigator.of(c).pop();
             },
@@ -1171,11 +1888,20 @@ class ComplaintsAdminScreen extends StatelessWidget {
               final subject = (d['subject'] as String?) ?? '';
               final details = (d['details'] as String?) ?? '';
               final status = (d['status'] as String?) ?? 'open';
+              final type = (d['type'] as String?) ?? 'other';
+              final lampNo = (d['lampNumber']?.toString());
+              final title = type == 'street_lamp'
+                  ? 'Street Lamp${lampNo == null || lampNo.isEmpty ? '' : ' #$lampNo'}'
+                  : subject;
               // createdAt is available but not currently displayed
               return Card(
                 child: ListTile(
-                  title: Text(subject),
-                  subtitle: Text(details),
+                  title: Text(title),
+                  subtitle: details.isEmpty
+                      ? (type == 'street_lamp' && d['lat'] != null && d['lng'] != null
+                          ? Text('Location: (${d['lat']}, ${d['lng']})')
+                          : const SizedBox.shrink())
+                      : Text(details),
                   leading: Icon(
                     status == 'open' ? Icons.report : Icons.check_circle,
                     color: status == 'open' ? Colors.orange : Colors.green,
@@ -1183,13 +1909,18 @@ class ComplaintsAdminScreen extends StatelessWidget {
                   trailing: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
+                      IconButton(
+                        tooltip: 'View details',
+                        onPressed: () => _viewComplaint(context, id, d),
+                        icon: const Icon(Icons.visibility),
+                      ),
                       Chip(label: Text(status)),
                       const SizedBox(width: 8),
                       ElevatedButton(
-                        onPressed: status == 'resolved'
+                        onPressed: status == 'fixed'
                             ? null
-                            : () => _setComplaintStatus(id, 'resolved'),
-                        child: const Text('Solve'),
+                            : () => _setComplaintStatus(id, 'fixed'),
+                        child: const Text('Mark Fixed'),
                       ),
                     ],
                   ),
@@ -1210,6 +1941,126 @@ class ComplaintsAdminScreen extends StatelessWidget {
       'complaintId': id,
       'status': status,
     });
+  }
+
+  Future<void> _viewComplaint(
+    BuildContext context,
+    String id,
+    Map<String, dynamic> data,
+  ) async {
+    String fmtDate(dynamic ts) {
+      if (ts is Timestamp) return ts.toDate().toLocal().toString().split(' ')[0];
+      if (ts is DateTime) return ts.toLocal().toString().split(' ')[0];
+      return ts?.toString() ?? '';
+    }
+
+    final type = (data['type'] as String?) ?? 'other';
+    final lampNo = data['lampNumber']?.toString();
+    final subject = (data['subject'] as String?) ?? '';
+    final title = type == 'street_lamp'
+        ? 'Street Lamp${lampNo == null || lampNo.isEmpty ? '' : ' #$lampNo'}'
+        : subject;
+    final details = (data['details'] as String?) ?? '';
+    final status = (data['status'] as String?) ?? 'open';
+    final createdAt = fmtDate(data['createdAt']);
+    final photoUrl = data['photoUrl'] as String?;
+    final lat = (data['lat'] as num?)?.toDouble();
+    final lng = (data['lng'] as num?)?.toDouble();
+
+    await showDialog(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: Text(title),
+        content: SizedBox(
+          width: 540,
+          child: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    Chip(label: Text('Type: $type')),
+                    Chip(label: Text('Status: $status')),
+                    if (createdAt.isNotEmpty) Chip(label: Text('Created: $createdAt')),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                if (details.isNotEmpty) ...[
+                  Text('Details', style: Theme.of(c).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600)),
+                  const SizedBox(height: 4),
+                  SelectableText(details),
+                  const SizedBox(height: 12),
+                ],
+                if (type == 'street_lamp' && lat != null && lng != null) ...[
+                  Text('Location', style: Theme.of(c).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600)),
+                  const SizedBox(height: 4),
+                  SizedBox(
+                    height: 220,
+                    child: FlutterMap(
+                      options: MapOptions(
+                        initialCenter: ll.LatLng(lat, lng),
+                        initialZoom: 16,
+                      ),
+                      children: [
+                        TileLayer(
+                          urlTemplate: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+                          subdomains: const ['a', 'b', 'c'],
+                          userAgentPackageName: 'lk.gov.ups.admin',
+                          tileProvider: NetworkTileProvider(),
+                        ),
+                        MarkerLayer(
+                          markers: [
+                            Marker(
+                              width: 40,
+                              height: 40,
+                              point: ll.LatLng(lat, lng),
+                              child: const Icon(Icons.location_on, color: Colors.red, size: 36),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                ],
+                if (photoUrl != null) ...[
+                  Text('Photo', style: Theme.of(c).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600)),
+                  const SizedBox(height: 4),
+                  GestureDetector(
+                    onTap: () async {
+                      final uri = Uri.parse(photoUrl);
+                      await url_launcher.launchUrl(uri, mode: url_launcher.LaunchMode.externalApplication);
+                    },
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: Image.network(photoUrl, height: 160, fit: BoxFit.cover),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(c).pop(),
+            child: const Text('Close'),
+          ),
+          if (status != 'fixed')
+            FilledButton.icon(
+              onPressed: () async {
+                await _setComplaintStatus(id, 'fixed');
+                if (c.mounted) Navigator.of(c).pop();
+              },
+              icon: const Icon(Icons.check_circle),
+              label: const Text('Mark Fixed'),
+            ),
+        ],
+      ),
+    );
   }
 }
 
@@ -1262,16 +2113,20 @@ class _NewsAdminScreenState extends State<NewsAdminScreen> {
       final List<String> imageUrls = [];
       for (final f in _images) {
         if (f.bytes == null) continue;
-        final path = 'news/${docRef.id}/images/${DateTime.now().millisecondsSinceEpoch}_${f.name}';
+        final path =
+            'news/${docRef.id}/images/${DateTime.now().millisecondsSinceEpoch}_${f.name}';
         final ref = storage.ref(path);
-        final meta = SettableMetadata(contentType: _guessContentType(f.extension));
+        final meta = SettableMetadata(
+          contentType: _guessContentType(f.extension),
+        );
         await ref.putData(f.bytes!, meta);
         imageUrls.add(await ref.getDownloadURL());
       }
       String? pdfUrl;
       if (_pdf?.bytes != null) {
         final p = _pdf!;
-        final path = 'news/${docRef.id}/files/${DateTime.now().millisecondsSinceEpoch}_${p.name}';
+        final path =
+            'news/${docRef.id}/files/${DateTime.now().millisecondsSinceEpoch}_${p.name}';
         final ref = storage.ref(path);
         final meta = SettableMetadata(contentType: 'application/pdf');
         await ref.putData(p.bytes!, meta);
@@ -1281,9 +2136,7 @@ class _NewsAdminScreenState extends State<NewsAdminScreen> {
         if (imageUrls.isNotEmpty) 'imageUrls': imageUrls,
         if (pdfUrl != null) 'pdfUrl': pdfUrl,
       });
-      await AuditLog.log('news_posted', {
-        'title': _title.text.trim(),
-      });
+      await AuditLog.log('news_posted', {'title': _title.text.trim()});
       _title.clear();
       _summary.clear();
       _images = [];
@@ -1298,11 +2151,7 @@ class _NewsAdminScreenState extends State<NewsAdminScreen> {
     return Scaffold(
       appBar: AppBar(
         title: Row(
-          children: [
-            _Logo(),
-            const SizedBox(width: 8),
-            const Text('News'),
-          ],
+          children: [_Logo(), const SizedBox(width: 8), const Text('News')],
         ),
       ),
       drawer: const _Nav(),
@@ -1414,7 +2263,10 @@ class NewsDetailScreen extends StatelessWidget {
 
   Future<void> _openUrl(String url) async {
     final uri = Uri.parse(url);
-  await url_launcher.launchUrl(uri, mode: url_launcher.LaunchMode.externalApplication);
+    await url_launcher.launchUrl(
+      uri,
+      mode: url_launcher.LaunchMode.externalApplication,
+    );
   }
 
   @override
@@ -1423,15 +2275,14 @@ class NewsDetailScreen extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(
         title: Row(
-          children: [
-            _Logo(),
-            const SizedBox(width: 8),
-            const Text('News'),
-          ],
+          children: [_Logo(), const SizedBox(width: 8), const Text('News')],
         ),
       ),
       body: StreamBuilder<DocumentSnapshot>(
-        stream: FirebaseFirestore.instance.collection('news').doc(id).snapshots(),
+        stream: FirebaseFirestore.instance
+            .collection('news')
+            .doc(id)
+            .snapshots(),
         builder: (context, snapshot) {
           if (snapshot.hasError) {
             return Center(child: Text('Error: ${snapshot.error}'));
@@ -1451,10 +2302,20 @@ class NewsDetailScreen extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(title, style: theme.textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold)),
+                Text(
+                  title,
+                  style: theme.textTheme.headlineSmall?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
                 if (date != null) ...[
                   const SizedBox(height: 6),
-                  Text('${date.toLocal()}'.split(' ')[0], style: theme.textTheme.bodySmall?.copyWith(color: Colors.grey[600])),
+                  Text(
+                    '${date.toLocal()}'.split(' ')[0],
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: Colors.grey[600],
+                    ),
+                  ),
                 ],
                 const SizedBox(height: 12),
                 Text(summary, style: theme.textTheme.bodyMedium),
@@ -1505,11 +2366,7 @@ class UsersAdminScreen extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(
         title: Row(
-          children: [
-            _Logo(),
-            const SizedBox(width: 8),
-            const Text('Users'),
-          ],
+          children: [_Logo(), const SizedBox(width: 8), const Text('Users')],
         ),
       ),
       drawer: const _Nav(),
@@ -1641,7 +2498,11 @@ class SecurityOverlay extends StatefulWidget {
   final Widget child;
   final Duration idleTimeout;
 
-  const SecurityOverlay({super.key, required this.child, this.idleTimeout = const Duration(minutes: 15)});
+  const SecurityOverlay({
+    super.key,
+    required this.child,
+    this.idleTimeout = const Duration(minutes: 15),
+  });
 
   @override
   State<SecurityOverlay> createState() => _SecurityOverlayState();
