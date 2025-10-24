@@ -1,64 +1,49 @@
-# 📦 UPS Application Suite
+# UPS Apps (Flutter + Firebase)
 
-<div align="center">
+Clean, production-focused repo with two apps:
 
-![Flutter](https://img.shields.io/badge/Flutter-02569B?style=for-the-badge&logo=flutter&logoColor=white)
-![Firebase](https://img.shields.io/badge/Firebase-039BE5?style=for-the-badge&logo=Firebase&logoColor=white)
-![Dart](https://img.shields.io/badge/Dart-0175C2?style=for-the-badge&logo=dart&logoColor=white)
-![Material Design](https://img.shields.io/badge/Material%20Design-757575?style=for-the-badge&logo=material-design&logoColor=white)
+- User app (Flutter): `lib/`, `android/`, `web/`, shared `assets/`
+- Admin web app (Flutter): `admin_web/`
 
-**A comprehensive digital postal service platform built with Flutter & Firebase**
+Both apps use OpenStreetMap via flutter_map and Firebase (Auth, Firestore, Storage, Functions).
 
-[🌐 Live Admin Panel](https://ups-app-7d001.web.app) • [📱 Demo](#demo) • [📖 Documentation](#documentation) • [🚀 Quick Start](#quick-start)
+## Quick start
 
-</div>
+Prereqs: Flutter 3.x, Firebase project set up (FlutterFire already configured in this repo).
 
----
+Run the user app (mobile or web):
 
-## 🎯 Overview
-
-The UPS Application Suite is a modern, full-stack digital postal service platform consisting of:
-
-- **📱 Mobile Application** - Customer-facing Flutter app for iOS, Android & Web
-- **🌐 Admin Panel** - Web-based administrative interface for service management
-- **🔥 Firebase Backend** - Scalable cloud infrastructure with real-time capabilities
-
-### ✨ Key Highlights
-
-- 🔐 **Secure Authentication** with Firebase Auth & Google Sign-In
-- 📍 **Real-time Package Tracking** with GPS integration
-- 💰 **Integrated Payment System** for taxes and services
-- 📊 **Comprehensive Admin Dashboard** with live analytics
-- 🎯 **Complaint Management** with priority handling
-- 📰 **Content Management** for news and updates
-- 🌐 **Progressive Web App** capabilities
-- 📱 **Responsive Design** across all devices
-
----
-
-## 🚀 Quick Start
-
-### Prerequisites
-
-- Flutter SDK (3.9.0+)
-- Firebase CLI
-- Node.js (16.0+)
-- Git
-
-### Installation
-
-```bash
-# Clone repository
-git clone https://github.com/vibodhalakshan2004/myapp.git
-cd myapp
-
-# Install dependencies
+```sh
 flutter pub get
+flutter run        # pick your device
+```
 
-# Configure Firebase
-flutterfire configure
+Run the admin web app (Chrome):
 
-# Run mobile app
+```sh
+cd admin_web
+flutter pub get
+flutter run -d chrome
+
+Admin login is restricted to admin accounts.
+
+Grant admin:
+1) Create the user in Firebase Authentication (email/password)
+2) Create Firestore doc `roles/{UID}` with `{ admin: true }` where UID is the Authentication UID
+
+That’s it. Vehicles, bookings, complaints, news, and users are all wired to Firestore with secure rules.
+
+## Project layout
+
+- `lib/`            User app code
+- `admin_web/`      Admin Flutter web app
+- `assets/`         Shared images (e.g., app logo)
+- `android/`        Android project for user app
+- `web/`            Flutter web support for user app
+- `firestore.rules` Firestore security rules
+- `functions/`      Cloud Functions (GPS ingest endpoint)
+
+Non-essential docs and samples have been removed for clarity.
 flutter run
 
 # Run admin panel

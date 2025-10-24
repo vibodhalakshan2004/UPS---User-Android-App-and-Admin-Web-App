@@ -144,6 +144,7 @@ GoRouter _router(AuthService auth, RolesService roles) => GoRouter(
       '/complaints',
       '/news',
       '/users',
+      '/tracker',
     };
     if (loggedIn && protected.contains(state.matchedLocation)) {
       if (!roles.loaded) return null; // stay until roles load
@@ -361,6 +362,10 @@ class AdminDashboard extends StatelessWidget {
             const Text('UPS Admin'),
           ],
         ),
+        actions: [
+          const _UserChip(),
+          const SizedBox(width: 8),
+        ],
       ),
       drawer: const _Nav(),
       body: SingleChildScrollView(
@@ -447,8 +452,9 @@ class _RecentBookings extends StatelessWidget {
                   .limit(5)
                   .snapshots(),
               builder: (context, snapshot) {
-                if (!snapshot.hasData)
+                if (!snapshot.hasData) {
                   return const Center(child: CircularProgressIndicator());
+                }
                 final docs = snapshot.data!.docs;
                 if (docs.isEmpty) return const Text('No recent bookings');
                 return Column(
@@ -512,8 +518,9 @@ class _RecentComplaints extends StatelessWidget {
                   .limit(5)
                   .snapshots(),
               builder: (context, snapshot) {
-                if (!snapshot.hasData)
+                if (!snapshot.hasData) {
                   return const Center(child: CircularProgressIndicator());
+                }
                 final docs = snapshot.data!.docs;
                 if (docs.isEmpty) return const Text('No recent complaints');
                 return Column(
@@ -741,6 +748,26 @@ class _Logo extends StatelessWidget {
   }
 }
 
+class _UserChip extends StatelessWidget {
+  const _UserChip();
+
+  @override
+  Widget build(BuildContext context) {
+    final user = FirebaseAuth.instance.currentUser;
+    final email = user?.email ?? 'Admin';
+    final isAdmin = context.read<RolesService>().isAdmin;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8.0),
+      child: InputChip(
+        avatar: const CircleAvatar(child: Icon(Icons.person, size: 16)),
+        label: Text(email, overflow: TextOverflow.ellipsis),
+        tooltip: isAdmin ? 'Signed in as admin' : 'Signed in',
+        onPressed: null, // decorative
+      ),
+    );
+  }
+}
+
 class _Tile extends StatelessWidget {
   final String title;
   final String route;
@@ -790,65 +817,15 @@ class _AdminTrackerScreenState extends State<AdminTrackerScreen> {
   final MapController _mapController = MapController();
 
   Stream<List<_AdminMapItem>> _itemsStream() {
-    final vehicles = FirebaseFirestore.instance
+    return FirebaseFirestore.instance
         .collection('vehicles')
-        .where('active', isEqualTo: true)
         .snapshots()
         .map(
           (s) => s.docs
-              .map((d) => _AdminMapItem.fromDoc(d, isVehicle: true))
+              .map((d) => _AdminMapItem.fromDoc(d))
               .toList(),
         )
         .handleError((_) => <_AdminMapItem>[]);
-    final bins = FirebaseFirestore.instance
-        .collection('bins')
-        .snapshots()
-        .map(
-          (s) => s.docs
-              .map((d) => _AdminMapItem.fromDoc(d, isVehicle: false))
-              .toList(),
-        )
-        .handleError((_) => <_AdminMapItem>[]);
-    return vehicles
-        .asyncMap((v) async {
-          final b = await bins.first;
-          final list = <_AdminMapItem>[]
-            ..addAll(v)
-            ..addAll(b);
-          if (list.isEmpty) {
-            return [
-              _AdminMapItem(
-                id: 'truck_demo',
-                name: 'Waste Truck 1',
-                position: const ll.LatLng(5.6237, -0.1970),
-                isVehicle: true,
-              ),
-              _AdminMapItem(
-                id: 'bin_demo',
-                name: 'Community Bin',
-                position: const ll.LatLng(5.6037, -0.1870),
-                isVehicle: false,
-              ),
-            ];
-          }
-          return list;
-        })
-        .handleError(
-          (_) => <_AdminMapItem>[
-            _AdminMapItem(
-              id: 'truck_demo',
-              name: 'Waste Truck 1',
-              position: const ll.LatLng(5.6237, -0.1970),
-              isVehicle: true,
-            ),
-            _AdminMapItem(
-              id: 'bin_demo',
-              name: 'Community Bin',
-              position: const ll.LatLng(5.6037, -0.1870),
-              isVehicle: false,
-            ),
-          ],
-        );
   }
 
   @override
@@ -858,113 +835,108 @@ class _AdminTrackerScreenState extends State<AdminTrackerScreen> {
         title: Row(
           children: [_Logo(), const SizedBox(width: 8), const Text('Tracker')],
         ),
+        actions: [
+          _UserChip(),
+          SizedBox(width: 8),
+        ],
       ),
       drawer: const _Nav(),
-      floatingActionButton: _TrackerActions(onChanged: () => setState(() {})),
+      floatingActionButton: null,
       body: StreamBuilder<List<_AdminMapItem>>(
         stream: _itemsStream(),
         builder: (context, snapshot) {
           final items = snapshot.data ?? const <_AdminMapItem>[];
-          return Column(
-            children: [
-              Expanded(
-                child: FlutterMap(
-                  mapController: _mapController,
-                  options: const MapOptions(
-                    initialCenter: _center,
-                    initialZoom: 12,
-                    // interactionOptions: InteractionOptions(flags: InteractiveFlag.all),
-                  ),
+          return LayoutBuilder(
+            builder: (context, constraints) {
+              final wide = constraints.maxWidth >= 900;
+              final mapWidget = _TrackerMap(
+                controller: _mapController,
+                items: items,
+                onTapItem: _showVehiclePopup,
+              );
+              final panel = _TrackerVehiclesPanel(onChanged: () => setState(() {}));
+              if (wide) {
+                return Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    TileLayer(
-                      urlTemplate:
-                          'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-                      subdomains: const ['a', 'b', 'c'],
-                      userAgentPackageName: 'lk.gov.ups.admin',
-                      tileProvider: NetworkTileProvider(),
-                    ),
-                    RichAttributionWidget(
-                      attributions: const [
-                        TextSourceAttribution('© OpenStreetMap contributors'),
-                      ],
-                    ),
-                    MarkerLayer(
-                      markers: [
-                        for (final it in items)
-                          Marker(
-                            width: 44,
-                            height: 44,
-                            point: it.position,
-                            child: _AdminMarkerIcon(
-                              isVehicle: it.isVehicle,
-                              label: it.name,
-                            ),
-                          ),
-                      ],
-                    ),
+                    Expanded(child: mapWidget),
+                    const SizedBox(width: 12),
+                    SizedBox(width: 420, child: panel),
                   ],
-                ),
-              ),
-              _TrackerLegend(items: items),
-              const SizedBox(height: 8),
-              // Zoom buttons overlay
-              Align(
-                alignment: Alignment.topRight,
-                child: Padding(
-                  padding: const EdgeInsets.only(right: 12),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Material(
-                        color: Colors.white,
-                        shape: const CircleBorder(),
-                        elevation: 3,
-                        child: IconButton(
-                          icon: const Icon(Icons.add),
-                          onPressed: () {
-                            final z = _mapController.camera.zoom;
-                            final c = _mapController.camera.center;
-                            _mapController.move(c, z + 1);
-                          },
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Material(
-                        color: Colors.white,
-                        shape: const CircleBorder(),
-                        elevation: 3,
-                        child: IconButton(
-                          icon: const Icon(Icons.remove),
-                          onPressed: () {
-                            final z = _mapController.camera.zoom;
-                            final c = _mapController.camera.center;
-                            _mapController.move(c, z - 1);
-                          },
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              const SizedBox(height: 8),
-              _TrackerCrudPanel(onChanged: () => setState(() {})),
-            ],
+                );
+              }
+              return Column(
+                children: [
+                  SizedBox(height: 380, child: mapWidget),
+                  const SizedBox(height: 8),
+                  panel,
+                ],
+              );
+            },
           );
         },
+      ),
+    );
+  }
+
+  Future<void> _showVehiclePopup(_AdminMapItem item) async {
+    String fmt(DateTime? dt) {
+      if (dt == null) return '—';
+      final d = dt.toLocal();
+      return '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')} ${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
+    }
+    await showDialog(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: Text(item.name),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(children: [
+              const Icon(Icons.schedule, size: 16),
+              const SizedBox(width: 6),
+              Text('Last updated: ${fmt(item.updatedAt)}'),
+            ]),
+            const SizedBox(height: 8),
+            Row(children: [
+              const Icon(Icons.place, size: 16),
+              const SizedBox(width: 6),
+              Text('Lat: ${item.lat?.toStringAsFixed(5) ?? '—'}  •  Lng: ${item.lng?.toStringAsFixed(5) ?? '—'}'),
+            ]),
+            if (item.speedKph != null) ...[
+              const SizedBox(height: 8),
+              Row(children: [
+                const Icon(Icons.speed, size: 16),
+                const SizedBox(width: 6),
+                Text('Speed: ${item.speedKph!.toStringAsFixed(1)} km/h'),
+              ]),
+            ],
+            if (item.heading != null) ...[
+              const SizedBox(height: 8),
+              Row(children: [
+                const Icon(Icons.navigation, size: 16),
+                const SizedBox(width: 6),
+                Text('Heading: ${item.heading!.toStringAsFixed(0)}°'),
+              ]),
+            ],
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(c).pop(), child: const Text('Close')),
+        ],
       ),
     );
   }
 }
 
 class _AdminMarkerIcon extends StatelessWidget {
-  final bool isVehicle;
   final String label;
-  const _AdminMarkerIcon({required this.isVehicle, required this.label});
+  final Color color;
+  const _AdminMarkerIcon({required this.label, required this.color});
 
   @override
   Widget build(BuildContext context) {
-    final color = isVehicle ? Colors.green : Colors.blue;
-    final icon = isVehicle ? Icons.local_shipping : Icons.delete_outline;
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -975,7 +947,7 @@ class _AdminMarkerIcon extends StatelessWidget {
             boxShadow: const [BoxShadow(blurRadius: 6, color: Colors.black26)],
           ),
           padding: const EdgeInsets.all(6),
-          child: Icon(icon, color: Colors.white, size: 16),
+          child: const Icon(Icons.local_shipping, color: Colors.white, size: 16),
         ),
         const SizedBox(height: 4),
         Container(
@@ -999,49 +971,77 @@ class _AdminMapItem {
   final String id;
   final String name;
   final ll.LatLng position;
-  final bool isVehicle;
+  final bool active;
+  final DateTime? updatedAt;
+  final double? lat;
+  final double? lng;
+  final double? speedKph;
+  final double? heading;
 
   const _AdminMapItem({
     required this.id,
     required this.name,
     required this.position,
-    required this.isVehicle,
+    required this.active,
+    this.updatedAt,
+    this.lat,
+    this.lng,
+    this.speedKph,
+    this.heading,
   });
 
   factory _AdminMapItem.fromDoc(
-    DocumentSnapshot<Map<String, dynamic>> doc, {
-    required bool isVehicle,
-  }) {
+    DocumentSnapshot<Map<String, dynamic>> doc,
+  ) {
     final data = doc.data() ?? {};
     final lat = (data['lat'] as num?)?.toDouble();
     final lng = (data['lng'] as num?)?.toDouble();
-    final name = (data['name'] as String?) ?? (isVehicle ? 'Vehicle' : 'Bin');
+    final name = (data['name'] as String?) ?? 'Vehicle';
+    final active = (data['active'] as bool?) ?? false;
+    DateTime? updatedAt;
+    final ts = data['updatedAt'];
+    if (ts is Timestamp) updatedAt = ts.toDate();
+    final speed = (data['speedKph'] as num?)?.toDouble();
+    final head = (data['heading'] as num?)?.toDouble();
     return _AdminMapItem(
       id: doc.id,
       name: name,
       position: (lat != null && lng != null)
           ? ll.LatLng(lat, lng)
           : _AdminTrackerScreenState._center,
-      isVehicle: isVehicle,
+      active: active,
+      updatedAt: updatedAt,
+      lat: lat,
+      lng: lng,
+      speedKph: speed,
+      heading: head,
     );
   }
+
 }
 
 class _TrackerLegend extends StatelessWidget {
   final List<_AdminMapItem> items;
   const _TrackerLegend({required this.items});
 
+  bool _isRecent(DateTime? dt) {
+    if (dt == null) return false;
+    return DateTime.now().difference(dt).inMinutes <= 5;
+    }
+
   @override
   Widget build(BuildContext context) {
-    final trucks = items.where((e) => e.isVehicle).length;
-    final bins = items.where((e) => !e.isVehicle).length;
+    final trucks = items.length;
+    final recent = items.where((e) => e.active && _isRecent(e.updatedAt)).length;
+    final stale = trucks - recent;
     return Padding(
       padding: const EdgeInsets.all(12.0),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceEvenly,
         children: [
-          _chip(Icons.local_shipping, Colors.green, '$trucks Active Trucks'),
-          _chip(Icons.delete_outline, Colors.blue, '$bins Bins'),
+          _chip(Icons.local_shipping, Colors.green, '$recent Recent'),
+          _chip(Icons.local_shipping, Colors.red, '$stale Stale'),
+          _chip(Icons.directions_car, Colors.blueGrey, '$trucks Trucks'),
         ],
       ),
     );
@@ -1064,23 +1064,11 @@ class _TrackerActions extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        FloatingActionButton.extended(
-          heroTag: 'addVehicle',
-          onPressed: () => _showVehicleDialog(context),
-          icon: const Icon(Icons.local_shipping),
-          label: const Text('Add Truck'),
-        ),
-        const SizedBox(height: 8),
-        FloatingActionButton.extended(
-          heroTag: 'addBin',
-          onPressed: () => _showBinDialog(context),
-          icon: const Icon(Icons.delete_outline),
-          label: const Text('Add Bin'),
-        ),
-      ],
+    return FloatingActionButton.extended(
+      heroTag: 'addVehicle',
+      onPressed: () => _showVehicleDialog(context),
+      icon: const Icon(Icons.local_shipping),
+      label: const Text('Add Truck'),
     );
   }
 
@@ -1115,219 +1103,315 @@ class _TrackerActions extends StatelessWidget {
       ),
     );
     if (ok != true) return;
+    final n = name.text.trim();
+    final la = double.tryParse(lat.text.trim());
+    final ln = double.tryParse(lng.text.trim());
+    if (n.isEmpty || la == null || ln == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please provide a name, valid latitude and longitude.')),
+      );
+      return;
+    }
     final data = {
-      'name': name.text.trim(),
-      'lat': double.tryParse(lat.text.trim()) ?? 0.0,
-      'lng': double.tryParse(lng.text.trim()) ?? 0.0,
+      'name': n,
+      'lat': la,
+      'lng': ln,
       'active': active,
       'updatedAt': FieldValue.serverTimestamp(),
     };
     final col = FirebaseFirestore.instance.collection('vehicles');
-    if (id == null) {
-      await col.add(data);
-      await AuditLog.log('vehicle_create', data);
-    } else {
-      await col.doc(id).update(data);
-      await AuditLog.log('vehicle_update', {'id': id, ...data});
+    try {
+      if (id == null) {
+        await col.add(data);
+        await AuditLog.log('vehicle_create', data);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Truck added')),
+        );
+      } else {
+        await col.doc(id).update(data);
+        await AuditLog.log('vehicle_update', {'id': id, ...data});
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Truck updated')),
+        );
+      }
+      onChanged();
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to save truck: $e')),
+      );
     }
-    onChanged();
+  }
+}
+
+class _TrackerVehiclesPanel extends StatelessWidget {
+  final VoidCallback onChanged;
+  const _TrackerVehiclesPanel({required this.onChanged});
+
+  @override
+  Widget build(BuildContext context) {
+    final isAdmin = context.watch<RolesService>().isAdmin;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.only(bottom: 8),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            ListTile(
+              title: const Text('Trucks'),
+              trailing: IconButton(
+                tooltip: 'Add Truck',
+                icon: const Icon(Icons.add),
+                onPressed: isAdmin
+                    ? () => _TrackerActions(onChanged: onChanged)
+                        ._showVehicleDialog(context)
+                    : null,
+              ),
+            ),
+            SizedBox(
+              height: 360,
+              child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                stream: FirebaseFirestore.instance.collection('vehicles').snapshots(),
+                builder: (context, snapshot) {
+                  if (snapshot.hasError) {
+                    return Center(
+                      child: Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: Text('Failed to load trucks: ${snapshot.error}', textAlign: TextAlign.center),
+                      ),
+                    );
+                  }
+                  if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
+                  final docs = snapshot.data!.docs.toList();
+                  // sort by updatedAt desc
+                  docs.sort((a, b) {
+                    final ta = a.data()['updatedAt'];
+                    final tb = b.data()['updatedAt'];
+                    DateTime? da = ta is Timestamp ? ta.toDate() : null;
+                    DateTime? db = tb is Timestamp ? tb.toDate() : null;
+                    if (da == null && db == null) return 0;
+                    if (da == null) return 1;
+                    if (db == null) return -1;
+                    return db.compareTo(da);
+                  });
+                  final total = docs.length;
+                  int recent = 0;
+                  bool isRecent(DateTime? dt) => dt != null && DateTime.now().difference(dt).inMinutes <= 5;
+                  for (final d in docs) {
+                    final ts = d.data()['updatedAt'];
+                    final dt = ts is Timestamp ? ts.toDate() : null;
+                    final active = (d.data()['active'] as bool?) ?? false;
+                    if (active && isRecent(dt)) recent++;
+                  }
+                  final stale = total - recent;
+                  return Column(
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 12.0),
+                        child: Wrap(
+                          spacing: 8,
+                          children: [
+                            Chip(avatar: const CircleAvatar(backgroundColor: Colors.green), label: Text('Recent: $recent')),
+                            Chip(avatar: const CircleAvatar(backgroundColor: Colors.red), label: Text('Stale: $stale')),
+                            Chip(avatar: const CircleAvatar(backgroundColor: Colors.blueGrey), label: Text('Total: $total')),
+                          ],
+                        ),
+                      ),
+                      const Divider(height: 1),
+                      Expanded(
+                        child: ListView.builder(
+                          itemCount: docs.length,
+                          itemBuilder: (_, i) {
+                            final doc = docs[i];
+                            final d = doc.data();
+                            final active = (d['active'] as bool?) ?? false;
+                            final lat = (d['lat'] as num?)?.toDouble();
+                            final lng = (d['lng'] as num?)?.toDouble();
+                            final ts = d['updatedAt'];
+                            final updatedAt = ts is Timestamp ? ts.toDate() : null;
+                            String fmtAgo(DateTime? dt) {
+                              if (dt == null) return '—';
+                              final diff = DateTime.now().difference(dt);
+                              if (diff.inMinutes < 1) return 'just now';
+                              if (diff.inMinutes < 60) return '${diff.inMinutes} min ago';
+                              if (diff.inHours < 24) return '${diff.inHours} h ago';
+                              return '${diff.inDays} d ago';
+                            }
+                            final recentRow = active && isRecent(updatedAt);
+                            Color statusColor = recentRow ? Colors.green : Colors.red;
+                            return ListTile(
+                              dense: true,
+                              leading: Icon(Icons.circle, color: statusColor, size: 12),
+                              title: Text(d['name']?.toString() ?? doc.id),
+                              subtitle: Text('Lat: ${lat?.toStringAsFixed(5) ?? '—'}  •  Lng: ${lng?.toStringAsFixed(5) ?? '—'}\nUpdated: ${fmtAgo(updatedAt)}'),
+                              isThreeLine: true,
+                              trailing: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Switch(
+                                    value: active,
+                                    onChanged: isAdmin
+                                        ? (v) async {
+                                            try {
+                                              await FirebaseFirestore.instance
+                                                  .collection('vehicles')
+                                                  .doc(doc.id)
+                                                  .update({'active': v});
+                                              await AuditLog.log(
+                                                  'vehicle_set_active',
+                                                  {'id': doc.id, 'active': v});
+                                              onChanged();
+                                            } catch (e) {
+                                              ScaffoldMessenger.of(context)
+                                                  .showSnackBar(SnackBar(
+                                                      content: Text(
+                                                          'Failed to update active: $e')));
+                                            }
+                                          }
+                                        : null,
+                                  ),
+                                  if (isAdmin)
+                                    IconButton(
+                                      tooltip: 'Edit',
+                                      icon: const Icon(Icons.edit),
+                                      onPressed: () => _TrackerActions(
+                                              onChanged: onChanged)
+                                          ._showVehicleDialog(context,
+                                              id: doc.id, existing: d),
+                                    ),
+                                  if (isAdmin)
+                                    IconButton(
+                                      tooltip: 'Delete',
+                                      icon: const Icon(Icons.delete),
+                                      onPressed: () async {
+                                        try {
+                                          await FirebaseFirestore.instance
+                                              .collection('vehicles')
+                                              .doc(doc.id)
+                                              .delete();
+                                          await AuditLog.log('vehicle_delete',
+                                              {'id': doc.id});
+                                          onChanged();
+                                          ScaffoldMessenger.of(context)
+                                              .showSnackBar(const SnackBar(
+                                                  content:
+                                                      Text('Truck deleted')));
+                                        } catch (e) {
+                                          ScaffoldMessenger.of(context)
+                                              .showSnackBar(SnackBar(
+                                                  content: Text(
+                                                      'Failed to delete truck: $e')));
+                                        }
+                                      },
+                                    ),
+                                ],
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                    ],
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// removed _VehiclesList/_BinsList in favor of unified _TrackerVehiclesPanel
+
+class _TrackerMap extends StatelessWidget {
+  final MapController controller;
+  final List<_AdminMapItem> items;
+  final void Function(_AdminMapItem) onTapItem;
+  const _TrackerMap({required this.controller, required this.items, required this.onTapItem});
+
+  bool _isRecent(DateTime? dt) {
+    if (dt == null) return false;
+    return DateTime.now().difference(dt).inMinutes <= 5;
   }
 
-  Future<void> _showBinDialog(BuildContext context, {String? id, Map<String, dynamic>? existing}) async {
-    final name = TextEditingController(text: existing?['name'] as String? ?? '');
-    final lat = TextEditingController(text: (existing?['lat']?.toString()) ?? '');
-    final lng = TextEditingController(text: (existing?['lng']?.toString()) ?? '');
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (c) => AlertDialog(
-        title: Text(id == null ? 'Add Bin' : 'Edit Bin'),
-        content: SizedBox(
-          width: 420,
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      children: [
+        FlutterMap(
+          mapController: controller,
+          options: const MapOptions(
+            initialCenter: _AdminTrackerScreenState._center,
+            initialZoom: 12,
+          ),
+          children: [
+            TileLayer(
+              urlTemplate: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+              subdomains: const ['a', 'b', 'c'],
+              userAgentPackageName: 'lk.gov.ups.admin',
+              tileProvider: NetworkTileProvider(),
+            ),
+            RichAttributionWidget(
+              attributions: const [TextSourceAttribution('© OpenStreetMap contributors')],
+            ),
+            MarkerLayer(
+              markers: [
+                for (final it in items)
+                  Marker(
+                    width: 46,
+                    height: 56,
+                    point: it.position,
+                    child: GestureDetector(
+                      onTap: () => onTapItem(it),
+                      child: _AdminMarkerIcon(
+                        label: it.name,
+                        color: (it.active && _isRecent(it.updatedAt)) ? Colors.green : Colors.red,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ],
+        ),
+        Positioned(
+          right: 12,
+          top: 12,
           child: Column(
-            mainAxisSize: MainAxisSize.min,
             children: [
-              TextField(controller: name, decoration: const InputDecoration(labelText: 'Name')),
-              TextField(controller: lat, decoration: const InputDecoration(labelText: 'Latitude'), keyboardType: TextInputType.number),
-              TextField(controller: lng, decoration: const InputDecoration(labelText: 'Longitude'), keyboardType: TextInputType.number),
+              Material(
+                color: Colors.white,
+                shape: const CircleBorder(),
+                elevation: 3,
+                child: IconButton(
+                  icon: const Icon(Icons.add),
+                  onPressed: () {
+                    final z = controller.camera.zoom;
+                    final c = controller.camera.center;
+                    controller.move(c, z + 1);
+                  },
+                ),
+              ),
+              const SizedBox(height: 8),
+              Material(
+                color: Colors.white,
+                shape: const CircleBorder(),
+                elevation: 3,
+                child: IconButton(
+                  icon: const Icon(Icons.remove),
+                  onPressed: () {
+                    final z = controller.camera.zoom;
+                    final c = controller.camera.center;
+                    controller.move(c, z - 1);
+                  },
+                ),
+              ),
+              const SizedBox(height: 8),
+              // Simple legend chips
+              _TrackerLegend(items: items),
             ],
           ),
         ),
-        actions: [
-          TextButton(onPressed: () => Navigator.of(c).pop(false), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.of(c).pop(true), child: const Text('Save')),
-        ],
-      ),
-    );
-    if (ok == true) {
-      final data = {
-        'name': name.text.trim(),
-        'lat': double.tryParse(lat.text.trim()) ?? 0.0,
-        'lng': double.tryParse(lng.text.trim()) ?? 0.0,
-        'updatedAt': FieldValue.serverTimestamp(),
-      };
-      final col = FirebaseFirestore.instance.collection('bins');
-      if (id == null) {
-        await col.add(data);
-        await AuditLog.log('bin_create', data);
-      } else {
-        await col.doc(id).update(data);
-        await AuditLog.log('bin_update', {'id': id, ...data});
-      }
-      onChanged();
-    }
-  }
-}
-
-class _TrackerCrudPanel extends StatelessWidget {
-  final VoidCallback onChanged;
-  const _TrackerCrudPanel({required this.onChanged});
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Expanded(child: _VehiclesList(onChanged: onChanged)),
-          const SizedBox(width: 12),
-          Expanded(child: _BinsList(onChanged: onChanged)),
-        ],
-      ),
-    );
-  }
-}
-
-class _VehiclesList extends StatelessWidget {
-  final VoidCallback onChanged;
-  const _VehiclesList({required this.onChanged});
-
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          ListTile(
-            title: const Text('Trucks'),
-            trailing: IconButton(
-              tooltip: 'Add Truck',
-              icon: const Icon(Icons.add),
-              onPressed: () => _TrackerActions(onChanged: onChanged)._showVehicleDialog(context),
-            ),
-          ),
-          SizedBox(
-            height: 220,
-            child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-              stream: FirebaseFirestore.instance.collection('vehicles').snapshots(),
-              builder: (context, snapshot) {
-                if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
-                final docs = snapshot.data!.docs;
-                if (docs.isEmpty) return const Center(child: Text('No trucks added yet'));
-                return ListView.builder(
-                  itemCount: docs.length,
-                  itemBuilder: (_, i) {
-                    final doc = docs[i];
-                    final d = doc.data();
-                    final active = (d['active'] as bool?) ?? false;
-                    return ListTile(
-                      dense: true,
-                      title: Text(d['name']?.toString() ?? doc.id),
-                      subtitle: Text('(${d['lat']}, ${d['lng']})'),
-                      leading: Icon(active ? Icons.check_circle : Icons.radio_button_unchecked, color: active ? Colors.green : null),
-                      trailing: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          IconButton(
-                            tooltip: 'Edit',
-                            icon: const Icon(Icons.edit),
-                            onPressed: () => _TrackerActions(onChanged: onChanged)._showVehicleDialog(context, id: doc.id, existing: d),
-                          ),
-                          IconButton(
-                            tooltip: 'Delete',
-                            icon: const Icon(Icons.delete),
-                            onPressed: () async {
-                              await FirebaseFirestore.instance.collection('vehicles').doc(doc.id).delete();
-                              await AuditLog.log('vehicle_delete', {'id': doc.id});
-                              onChanged();
-                            },
-                          ),
-                        ],
-                      ),
-                    );
-                  },
-                );
-              },
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _BinsList extends StatelessWidget {
-  final VoidCallback onChanged;
-  const _BinsList({required this.onChanged});
-
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          ListTile(
-            title: const Text('Bins'),
-            trailing: IconButton(
-              tooltip: 'Add Bin',
-              icon: const Icon(Icons.add),
-              onPressed: () => _TrackerActions(onChanged: onChanged)._showBinDialog(context),
-            ),
-          ),
-          SizedBox(
-            height: 220,
-            child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-              stream: FirebaseFirestore.instance.collection('bins').snapshots(),
-              builder: (context, snapshot) {
-                if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
-                final docs = snapshot.data!.docs;
-                if (docs.isEmpty) return const Center(child: Text('No bins added yet'));
-                return ListView.builder(
-                  itemCount: docs.length,
-                  itemBuilder: (_, i) {
-                    final doc = docs[i];
-                    final d = doc.data();
-                    return ListTile(
-                      dense: true,
-                      title: Text(d['name']?.toString() ?? doc.id),
-                      subtitle: Text('(${d['lat']}, ${d['lng']})'),
-                      trailing: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          IconButton(
-                            tooltip: 'Edit',
-                            icon: const Icon(Icons.edit),
-                            onPressed: () => _TrackerActions(onChanged: onChanged)._showBinDialog(context, id: doc.id, existing: d),
-                          ),
-                          IconButton(
-                            tooltip: 'Delete',
-                            icon: const Icon(Icons.delete),
-                            onPressed: () async {
-                              await FirebaseFirestore.instance.collection('bins').doc(doc.id).delete();
-                              await AuditLog.log('bin_delete', {'id': doc.id});
-                              onChanged();
-                            },
-                          ),
-                        ],
-                      ),
-                    );
-                  },
-                );
-              },
-            ),
-          ),
-        ],
-      ),
+      ],
     );
   }
 }
@@ -1554,8 +1638,9 @@ class BookingsAdminScreen extends StatelessWidget {
                             final reason =
                                 (d.data()['bookingReason'] as String?) ?? '';
                             final m = regex.firstMatch(reason);
-                            if (m != null)
+                            if (m != null) {
                               slots.add(m.group(1)!.toUpperCase().trim());
+                            }
                           }
                           bookedSlots = slots;
                           (c as Element).markNeedsBuild();
@@ -1722,10 +1807,12 @@ class BookingsAdminScreen extends StatelessWidget {
                 }
                 if (r.isNotEmpty) data['bookingReason'] = r;
 
-                if (deathCertUrl != null)
+                if (deathCertUrl != null) {
                   data['deathCertificateUrl'] = deathCertUrl;
-                if (deathCertName != null)
+                }
+                if (deathCertName != null) {
                   data['deathCertificateName'] = deathCertName;
+                }
 
                 // Optionally assign to an existing user by email
                 final email = memberEmailCtrl.text.trim();
@@ -1765,8 +1852,9 @@ class BookingsAdminScreen extends StatelessWidget {
     Map<String, dynamic> data,
   ) async {
     String fmtDate(dynamic ts) {
-      if (ts is Timestamp)
+      if (ts is Timestamp) {
         return ts.toDate().toLocal().toString().split(' ')[0];
+      }
       if (ts is DateTime) return ts.toLocal().toString().split(' ')[0];
       return ts?.toString() ?? '';
     }

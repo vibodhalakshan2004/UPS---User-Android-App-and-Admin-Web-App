@@ -1,0 +1,116 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helpers
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function hasAdminRoleDoc() {
+      return isSignedIn() &&
+        exists(/databases/$(database)/documents/roles/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/roles/$(request.auth.uid)).data.admin == true;
+    }
+
+    function isAdmin() {
+      // Admin via custom claim or roles/{uid} doc with { admin: true }
+      return isSignedIn() && (
+        request.auth.token.admin == true || hasAdminRoleDoc()
+      );
+    }
+
+    function isValidLat(lat) { return lat is number && lat >= -90 && lat <= 90; }
+    function isValidLng(lng) { return lng is number && lng >= -180 && lng <= 180; }
+
+    // Vehicles: public read, admin write
+    match /vehicles/{id} {
+      allow read: if true;
+      allow create, update: if isAdmin() &&
+        request.resource.data.name is string &&
+        isValidLat(request.resource.data.lat) &&
+        isValidLng(request.resource.data.lng) &&
+        (request.resource.data.active is bool || !("active" in request.resource.data));
+      allow delete: if isAdmin();
+    }
+
+    // News: public read, admin write
+    match /news/{id} {
+      allow read: if true;
+      allow create, update, delete: if isAdmin();
+    }
+
+    // Complaints: users create and read their own, admins can read/update all
+    match /complaints/{id} {
+      // Users submit their own complaints
+      allow create: if isSignedIn() &&
+        request.resource.data.uid == request.auth.uid &&
+        request.resource.data.status == 'open' &&
+        (
+          (request.resource.data.type == 'street_lamp' &&
+            request.resource.data.lampNumber is string &&
+            isValidLat(request.resource.data.lat) &&
+            isValidLng(request.resource.data.lng)
+          ) ||
+          (request.resource.data.type == 'other' &&
+            request.resource.data.subject is string &&
+            request.resource.data.details is string
+          )
+        );
+
+      // Owners can read their own complaints; admins can read all
+      allow read: if isAdmin() || (isSignedIn() && resource.data.uid == request.auth.uid);
+
+      // Only admins update (e.g., to set status: 'fixed') or delete
+      allow update, delete: if isAdmin();
+    }
+
+    // Users: admins can read/write all; users can read and update their own basic profile
+    match /users/{uid} {
+      // Allow admins to read all users; allow user to read own doc
+      allow read: if isAdmin() || (isSignedIn() && request.auth.uid == uid);
+      // Allow admins to write any user; allow user to write own limited fields
+      allow create, update: if isAdmin() || (isSignedIn() && request.auth.uid == uid &&
+        // Only allow these fields for self-updates
+        request.resource.data.keys().hasOnly(["displayName", "name", "phone", "phoneNumber", "updatedAt"]) &&
+        (
+          // Validate types when present
+          ("displayName" in request.resource.data ? request.resource.data.displayName is string : true) &&
+          ("name" in request.resource.data ? request.resource.data.name is string : true) &&
+          ("phone" in request.resource.data ? request.resource.data.phone is string : true) &&
+          ("phoneNumber" in request.resource.data ? request.resource.data.phoneNumber is string : true)
+        )
+      );
+      allow delete: if isAdmin();
+    }
+
+    // Bookings: owners can create/read their own; admins can read/write all
+    match /bookings/{id} {
+      allow read: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow create: if isAdmin() || (isSignedIn() &&
+        request.resource.data.userId == request.auth.uid &&
+        // Basic validation
+        (request.resource.data.bookingType in ["ground", "cemetery"]) &&
+        (request.resource.data.bookingDate is timestamp)
+      );
+      // Only admins update/delete (status changes, etc.)
+      allow update, delete: if isAdmin();
+    }
+
+    // Admin audit logs: admin-only
+    match /admin_audit_logs/{id} {
+      allow create, read, update, delete: if isAdmin();
+    }
+
+    // Roles doc: admin can write; users can read their own doc; admins can read all
+    match /roles/{uid} {
+      allow read: if isAdmin() || (isSignedIn() && request.auth.uid == uid);
+      allow write: if isAdmin();
+    }
+
+    // Default deny for everything else
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart' as ll;
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'dart:async';
 
 // Default map center (Udubaddawa, Sri Lanka - approximate)
 const ll.LatLng _kDefaultCenter = ll.LatLng(7.45, 80.03);
@@ -19,67 +19,14 @@ class _TrackerScreenState extends State<TrackerScreen> {
   final MapController _mapController = MapController();
 
   Stream<List<_MapItem>> _itemsStream() {
-    // Listen to both vehicles and bins collections. If collections are missing, fall back to sample markers.
-    final vehicles = FirebaseFirestore.instance
+    return FirebaseFirestore.instance
         .collection('vehicles')
         .where('active', isEqualTo: true)
         .snapshots()
-        .map(
-          (s) =>
-              s.docs.map((d) => _MapItem.fromDoc(d, isVehicle: true)).toList(),
-        )
+        .map((s) => s.docs
+            .map((d) => _MapItem.fromDoc(d))
+            .toList())
         .handleError((_) => <_MapItem>[]);
-    final bins = FirebaseFirestore.instance
-        .collection('bins')
-        .snapshots()
-        .map(
-          (s) =>
-              s.docs.map((d) => _MapItem.fromDoc(d, isVehicle: false)).toList(),
-        )
-        .handleError((_) => <_MapItem>[]);
-
-    return vehicles
-        .asyncMap((v) async {
-          final b = await bins
-              .first; // simple combineLatest-one shot per vehicles event
-          final list = <_MapItem>[]
-            ..addAll(v)
-            ..addAll(b);
-          if (list.isEmpty) {
-            // Fallback demo items
-            return [
-              _MapItem(
-                id: 'truck_demo',
-                name: 'Waste Truck 1',
-                position: const ll.LatLng(5.6237, -0.1970),
-                isVehicle: true,
-              ),
-              _MapItem(
-                id: 'bin_demo',
-                name: 'Community Bin',
-                position: const ll.LatLng(5.6037, -0.1870),
-                isVehicle: false,
-              ),
-            ];
-          }
-          return list;
-        })
-        .handleError(
-          (_) => <_MapItem>[
-            _MapItem(
-              id: 'truck_demo',
-              name: 'Waste Truck 1',
-              position: const ll.LatLng(5.6237, -0.1970),
-              isVehicle: true,
-            ),
-            _MapItem(
-              id: 'bin_demo',
-              name: 'Community Bin',
-              position: const ll.LatLng(5.6037, -0.1870),
-              isVehicle: false,
-            ),
-          ],
-        );
   }
 
   @override
@@ -92,7 +39,13 @@ class _TrackerScreenState extends State<TrackerScreen> {
             stream: _itemsStream(),
             builder: (context, snapshot) {
               final items = snapshot.data ?? const <_MapItem>[];
-              return FlutterMap(
+              return AnimatedSwitcher(
+                duration: const Duration(milliseconds: 300),
+                switchInCurve: Curves.easeOut,
+                switchOutCurve: Curves.easeIn,
+                child: snapshot.connectionState == ConnectionState.waiting
+                    ? const Center(child: CircularProgressIndicator())
+                    : FlutterMap(
                 mapController: _mapController,
                 options: MapOptions(
                   initialCenter: _center,
@@ -124,17 +77,22 @@ class _TrackerScreenState extends State<TrackerScreen> {
                     markers: [
                       for (final it in items)
                         Marker(
-                          width: 44,
-                          height: 44,
+                          width: 46,
+                          height: 56,
                           point: it.position,
-                          child: _MarkerIcon(
-                            isVehicle: it.isVehicle,
-                            label: it.name,
+                          child: GestureDetector(
+                            onTap: () => _showTruckPopup(context, it),
+                            child: _PulseMarker(
+                              recent: it.updatedAt != null &&
+                                  DateTime.now().difference(it.updatedAt!).inMinutes <= 2,
+                              child: _MarkerIcon(label: it.name),
+                            ),
                           ),
                         ),
                     ],
                   ),
                 ],
+              ),
               );
             },
           ),
@@ -154,13 +112,8 @@ class _TrackerScreenState extends State<TrackerScreen> {
                   children: <Widget>[
                     _buildTrackerInfo(
                       context,
-                      icon: FontAwesomeIcons.truck,
+                      icon: Icons.local_shipping,
                       label: 'Trucks (live)',
-                    ),
-                    _buildTrackerInfo(
-                      context,
-                      icon: FontAwesomeIcons.recycle,
-                      label: 'Bins (live)',
                     ),
                   ],
                 ),
@@ -173,6 +126,41 @@ class _TrackerScreenState extends State<TrackerScreen> {
             top: 80,
             child: Column(
               children: [
+                // Fit to markers
+                Material(
+                  color: Colors.white,
+                  shape: const CircleBorder(),
+                  elevation: 3,
+                  child: IconButton(
+                    tooltip: 'Fit all',
+                    icon: const Icon(Icons.center_focus_strong),
+                    onPressed: () {
+                      // We can't read stream synchronously; so use current camera if empty.
+                      // Instead, fetch last snapshot via a one-shot get of vehicles.
+                      FirebaseFirestore.instance
+                          .collection('vehicles')
+                          .where('active', isEqualTo: true)
+                          .get()
+                          .then((qs) {
+                        final pts = <ll.LatLng>[];
+                        for (final d in qs.docs) {
+                          final data = d.data();
+                          final lat = (data['lat'] as num?)?.toDouble();
+                          final lng = (data['lng'] as num?)?.toDouble();
+                          if (lat != null && lng != null) {
+                            pts.add(ll.LatLng(lat, lng));
+                          }
+                        }
+                        if (pts.isEmpty) return;
+                        final bounds = LatLngBounds.fromPoints(pts);
+                        _mapController.fitCamera(
+                          CameraFit.bounds(bounds: bounds, padding: const EdgeInsets.all(36)),
+                        );
+                      });
+                    },
+                  ),
+                ),
+                const SizedBox(height: 8),
                 Material(
                   color: Colors.white,
                   shape: const CircleBorder(),
@@ -217,7 +205,7 @@ class _TrackerScreenState extends State<TrackerScreen> {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        FaIcon(icon, color: theme.colorScheme.primary, size: 24),
+        Icon(icon, color: theme.colorScheme.primary, size: 24),
         const SizedBox(height: 8),
         Text(label, style: theme.textTheme.bodyMedium),
       ],
@@ -226,14 +214,12 @@ class _TrackerScreenState extends State<TrackerScreen> {
 }
 
 class _MarkerIcon extends StatelessWidget {
-  final bool isVehicle;
   final String label;
-  const _MarkerIcon({required this.isVehicle, required this.label});
+  const _MarkerIcon({required this.label});
 
   @override
   Widget build(BuildContext context) {
-  final color = isVehicle ? Colors.green : Colors.blue;
-    final icon = isVehicle ? FontAwesomeIcons.truck : FontAwesomeIcons.recycle;
+    const color = Colors.green;
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -244,7 +230,7 @@ class _MarkerIcon extends StatelessWidget {
             boxShadow: const [BoxShadow(blurRadius: 6, color: Colors.black26)],
           ),
           padding: const EdgeInsets.all(6),
-          child: FaIcon(icon, color: Colors.white, size: 16),
+          child: const Icon(Icons.local_shipping, color: Colors.white, size: 16),
         ),
         const SizedBox(height: 4),
         Container(
@@ -264,34 +250,177 @@ class _MarkerIcon extends StatelessWidget {
   }
 }
 
+class _PulseMarker extends StatefulWidget {
+  final Widget child;
+  final bool recent;
+  const _PulseMarker({required this.child, required this.recent});
+
+  @override
+  State<_PulseMarker> createState() => _PulseMarkerState();
+}
+
+class _PulseMarkerState extends State<_PulseMarker>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(
+    vsync: this,
+    duration: const Duration(seconds: 2),
+  )..repeat();
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!widget.recent) return widget.child;
+    return SizedBox(
+      width: 46,
+      height: 56,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          AnimatedBuilder(
+            animation: _c,
+            builder: (context, _) {
+              final t = _c.value; // 0..1
+              final scale = 1 + 0.8 * t;
+              final opacity = (1 - t).clamp(0.0, 1.0);
+              return Opacity(
+                opacity: opacity,
+                child: Transform.scale(
+                  scale: scale,
+                  child: Container(
+                    width: 22,
+                    height: 22,
+                    decoration: BoxDecoration(
+                      color: Colors.green.withOpacity(0.3),
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                ),
+              );
+            },
+          ),
+          widget.child,
+        ],
+      ),
+    );
+  }
+}
+
 class _MapItem {
   final String id;
   final String name;
   final ll.LatLng position;
-  final bool isVehicle;
+  final DateTime? updatedAt;
+  final double? lat;
+  final double? lng;
+  final double? speedKph;
+  final double? heading;
 
   const _MapItem({
     required this.id,
     required this.name,
     required this.position,
-    required this.isVehicle,
+    this.updatedAt,
+    this.lat,
+    this.lng,
+    this.speedKph,
+    this.heading,
   });
 
-  factory _MapItem.fromDoc(
-    DocumentSnapshot<Map<String, dynamic>> doc, {
-    required bool isVehicle,
-  }) {
+  factory _MapItem.fromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
     final data = doc.data() ?? {};
     final lat = (data['lat'] as num?)?.toDouble();
     final lng = (data['lng'] as num?)?.toDouble();
-    final name = (data['name'] as String?) ?? (isVehicle ? 'Vehicle' : 'Bin');
+    final name = (data['name'] as String?) ?? 'Vehicle';
+    final ts = data['updatedAt'];
+    DateTime? updatedAt;
+    if (ts is Timestamp) updatedAt = ts.toDate();
+    final speed = (data['speedKph'] as num?)?.toDouble();
+    final head = (data['heading'] as num?)?.toDouble();
     return _MapItem(
       id: doc.id,
       name: name,
       position: (lat != null && lng != null)
           ? ll.LatLng(lat, lng)
           : _kDefaultCenter,
-      isVehicle: isVehicle,
+      updatedAt: updatedAt,
+      lat: lat,
+      lng: lng,
+      speedKph: speed,
+      heading: head,
+    );
+  }
+}
+
+extension on DateTime {
+  String toLocalDateTimeString() {
+    final d = toLocal();
+    return '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')} ${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
+  }
+}
+
+extension on num? {
+  String asCoord() => this == null ? '—' : (this as num).toStringAsFixed(5);
+}
+
+extension on DateTime? {
+  String fmtOrDash() => this == null ? '—' : this!.toLocalDateTimeString();
+}
+
+extension on _TrackerScreenState {
+  Future<void> _showTruckPopup(BuildContext context, _MapItem item) async {
+    await showDialog(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: Text(item.name),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.schedule, size: 16),
+                const SizedBox(width: 6),
+                Text('Last updated: ${item.updatedAt.fmtOrDash()}'),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                const Icon(Icons.place, size: 16),
+                const SizedBox(width: 6),
+                Text('Lat: ${item.lat.asCoord()}  •  Lng: ${item.lng.asCoord()}'),
+              ],
+            ),
+            if (item.speedKph != null) ...[
+              const SizedBox(height: 8),
+              Row(children: [
+                const Icon(Icons.speed, size: 16),
+                const SizedBox(width: 6),
+                Text('Speed: ${item.speedKph!.toStringAsFixed(1)} km/h'),
+              ]),
+            ],
+            if (item.heading != null) ...[
+              const SizedBox(height: 8),
+              Row(children: [
+                const Icon(Icons.navigation, size: 16),
+                const SizedBox(width: 6),
+                Text('Heading: ${item.heading!.toStringAsFixed(0)}°'),
+              ]),
+            ],
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(c).pop(),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
     );
   }
 }
