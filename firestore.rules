@@ -2,10 +2,8 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Helpers
-    function isSignedIn() {
-      return request.auth != null;
-    }
+    // ---------- Helpers ----------
+    function isSignedIn() { return request.auth != null; }
 
     function hasAdminRoleDoc() {
       return isSignedIn() &&
@@ -13,36 +11,49 @@ service cloud.firestore {
         get(/databases/$(database)/documents/roles/$(request.auth.uid)).data.admin == true;
     }
 
+    // Admin via custom claim or roles/{uid} doc with { admin: true }
     function isAdmin() {
-      // Admin via custom claim or roles/{uid} doc with { admin: true }
-      return isSignedIn() && (
-        request.auth.token.admin == true || hasAdminRoleDoc()
-      );
+      return isSignedIn() && (request.auth.token.admin == true || hasAdminRoleDoc());
     }
 
     function isValidLat(lat) { return lat is number && lat >= -90 && lat <= 90; }
     function isValidLng(lng) { return lng is number && lng >= -180 && lng <= 180; }
+    function isValidSpeed(v) { return v is number && v >= 0 && v <= 300; }
+    function isValidHeading(h) { return h is number && h >= 0 && h < 360; }
 
-    // Vehicles: public read, admin write
+    function onlyChanged(keys) { return resource.data.diff(request.resource.data).changedKeys().hasOnly(keys); }
+
+    // ---------- Vehicles ----------
     match /vehicles/{id} {
       allow read: if true;
-      allow create, update: if isAdmin() &&
+      allow create: if isAdmin() &&
         request.resource.data.name is string &&
         isValidLat(request.resource.data.lat) &&
         isValidLng(request.resource.data.lng) &&
-        (request.resource.data.active is bool || !("active" in request.resource.data));
+        (!("active" in request.resource.data) || request.resource.data.active is bool) &&
+        (!("speedKph" in request.resource.data) || isValidSpeed(request.resource.data.speedKph)) &&
+        (!("heading" in request.resource.data) || isValidHeading(request.resource.data.heading));
+      allow update: if isAdmin() || (
+        isSignedIn() &&
+        onlyChanged(['active']) &&
+        request.resource.data.active is bool &&
+        request.resource.data.name is string &&
+        isValidLat(request.resource.data.lat) &&
+        isValidLng(request.resource.data.lng) &&
+        (!("speedKph" in request.resource.data) || isValidSpeed(request.resource.data.speedKph)) &&
+        (!("heading" in request.resource.data) || isValidHeading(request.resource.data.heading))
+      );
       allow delete: if isAdmin();
     }
 
-    // News: public read, admin write
+    // ---------- News ----------
     match /news/{id} {
       allow read: if true;
       allow create, update, delete: if isAdmin();
     }
 
-    // Complaints: users create and read their own, admins can read/update all
+    // ---------- Complaints ----------
     match /complaints/{id} {
-      // Users submit their own complaints
       allow create: if isSignedIn() &&
         request.resource.data.uid == request.auth.uid &&
         request.resource.data.status == 'open' &&
@@ -57,60 +68,87 @@ service cloud.firestore {
             request.resource.data.details is string
           )
         );
-
-      // Owners can read their own complaints; admins can read all
       allow read: if isAdmin() || (isSignedIn() && resource.data.uid == request.auth.uid);
-
-      // Only admins update (e.g., to set status: 'fixed') or delete
       allow update, delete: if isAdmin();
     }
 
-    // Users: admins can read/write all; users can read and update their own basic profile
+    // ---------- Users ----------
     match /users/{uid} {
-      // Allow admins to read all users; allow user to read own doc
       allow read: if isAdmin() || (isSignedIn() && request.auth.uid == uid);
-      // Allow admins to write any user; allow user to write own limited fields
-      allow create, update: if isAdmin() || (isSignedIn() && request.auth.uid == uid &&
-        // Only allow these fields for self-updates
-        request.resource.data.keys().hasOnly(["displayName", "name", "phone", "phoneNumber", "updatedAt"]) &&
-        (
-          // Validate types when present
-          ("displayName" in request.resource.data ? request.resource.data.displayName is string : true) &&
-          ("name" in request.resource.data ? request.resource.data.name is string : true) &&
-          ("phone" in request.resource.data ? request.resource.data.phone is string : true) &&
-          ("phoneNumber" in request.resource.data ? request.resource.data.phoneNumber is string : true)
+      allow create: if (
+        isAdmin() || (
+          isSignedIn() && request.auth.uid == uid &&
+          request.resource.data.keys().hasOnly([
+            'displayName','email','phone','photoURL','createdAt','address','name','phoneNumber'
+          ]) &&
+          (("displayName" in request.resource.data ? request.resource.data.displayName is string : true) &&
+           ("email" in request.resource.data ? request.resource.data.email is string : true) &&
+           ("phone" in request.resource.data ? request.resource.data.phone is string : true) &&
+           ("photoURL" in request.resource.data ? request.resource.data.photoURL is string : true) &&
+           ("address" in request.resource.data ? request.resource.data.address is string : true) &&
+           ("name" in request.resource.data ? request.resource.data.name is string : true) &&
+           ("phoneNumber" in request.resource.data ? request.resource.data.phoneNumber is string : true) &&
+           ("createdAt" in request.resource.data ? request.resource.data.createdAt is timestamp : true))
+        )
+      );
+      allow update: if (
+        isAdmin() || (
+          isSignedIn() && request.auth.uid == uid &&
+          request.resource.data.keys().hasOnly([
+            'displayName','name','phone','phoneNumber','address','updatedAt'
+          ]) &&
+          (("displayName" in request.resource.data ? request.resource.data.displayName is string : true) &&
+           ("name" in request.resource.data ? request.resource.data.name is string : true) &&
+           ("phone" in request.resource.data ? request.resource.data.phone is string : true) &&
+           ("phoneNumber" in request.resource.data ? request.resource.data.phoneNumber is string : true) &&
+           ("address" in request.resource.data ? request.resource.data.address is string : true) &&
+           ("updatedAt" in request.resource.data ? request.resource.data.updatedAt is timestamp : true))
         )
       );
       allow delete: if isAdmin();
     }
 
-    // Bookings: owners can create/read their own; admins can read/write all
+    // ---------- Bookings ----------
     match /bookings/{id} {
       allow read: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
-      allow create: if isAdmin() || (isSignedIn() &&
-        request.resource.data.userId == request.auth.uid &&
-        // Basic validation
-        (request.resource.data.bookingType in ["ground", "cemetery"]) &&
-        (request.resource.data.bookingDate is timestamp)
+      allow create: if (
+        isAdmin() || (
+          isSignedIn() &&
+          request.resource.data.userId == request.auth.uid &&
+          (request.resource.data.bookingType in ['ground','cemetery']) &&
+          (request.resource.data.bookingDate is timestamp)
+        )
       );
-      // Only admins update/delete (status changes, etc.)
       allow update, delete: if isAdmin();
     }
 
-    // Admin audit logs: admin-only
-    match /admin_audit_logs/{id} {
-      allow create, read, update, delete: if isAdmin();
+    // ---------- Admin Audit Logs ----------
+    match /admin_audit_logs/{id} { allow create, read, update, delete: if isAdmin(); }
+
+    // ---------- Roles ----------
+    match /roles/{uid} { allow read: if isAdmin() || (isSignedIn() && request.auth.uid == uid); allow write: if isAdmin(); }
+
+    // ---------- Runtime Logs ----------
+    match /client_logs/{id} {
+      allow create: if isSignedIn() &&
+        request.resource.data.keys().hasOnly(['type','message','stack','ts','platform']) &&
+        (request.resource.data.message is string && request.resource.data.message.size() <= 5000) &&
+        (request.resource.data.stack is string || request.resource.data.stack == null) &&
+        (request.resource.data.platform in ['android','ios','web','desktop']) &&
+        request.resource.data.ts is timestamp;
+      allow read, update, delete: if false;
+    }
+    match /admin_logs/{id} {
+      allow create: if isAdmin() &&
+        request.resource.data.keys().hasOnly(['type','message','stack','ts','platform']) &&
+        request.resource.data.message is string && request.resource.data.ts is timestamp;
+      allow read, update, delete: if false;
     }
 
-    // Roles doc: admin can write; users can read their own doc; admins can read all
-    match /roles/{uid} {
-      allow read: if isAdmin() || (isSignedIn() && request.auth.uid == uid);
-      allow write: if isAdmin();
-    }
+    // ---------- Tracker devices (optional, admin-only) ----------
+    match /tracker_devices/{id} { allow read, write: if isAdmin(); }
 
-    // Default deny for everything else
-    match /{document=**} {
-      allow read, write: if false;
-    }
+    // ---------- Default deny ----------
+    match /{document=**} { allow read, write: if false; }
   }
 }

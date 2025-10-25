@@ -20,18 +20,18 @@ class AboutScreen extends StatelessWidget {
               child: const AppLogo(size: 80, showTitle: true, title: 'UPS'),
             ),
             const SizedBox(height: 24),
-            Text('TrackWaste', style: theme.textTheme.headlineMedium),
+            Text('UPS Super Services', style: theme.textTheme.headlineMedium),
             const SizedBox(height: 8),
             Text('Version 1.0.0', style: theme.textTheme.bodyMedium),
             const SizedBox(height: 16),
             Text(
-              'TrackWaste helps you manage waste pickups, pay taxes, and track services with ease. Built with Flutter.',
+              'UPS brings municipal and community essentials into a single super app—pay taxes, reserve grounds or cemetery slots, follow news, and track water truck deliveries with one login.',
               style: theme.textTheme.bodyLarge,
             ),
             const Spacer(),
             Center(
               child: Text(
-                '© ${DateTime.now().year} TrackWaste',
+                '© ${DateTime.now().year} UPS Citizen Services',
                 style: theme.textTheme.bodySmall,
               ),
             ),

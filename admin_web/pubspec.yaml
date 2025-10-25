@@ -25,6 +25,8 @@ dependencies:
   flutter_map: ^8.2.2
   latlong2: ^0.9.1
   flutter_map_marker_cluster: ^8.2.2
+  pdf: ^3.10.8
+  printing: ^5.14.2
 
 dev_dependencies:
   flutter_test:

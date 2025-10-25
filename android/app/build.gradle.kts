@@ -37,9 +37,10 @@ android {
         release {
             // TODO: Replace with your real signing config for Play Store builds.
             signingConfig = signingConfigs.getByName("debug")
-            // Disable code/resource shrinking to avoid R8 missing-class issues
-            isMinifyEnabled = false
-            isShrinkResources = false
+            // Enable code shrinking and resource shrinking for smaller APK
+            // Keep rules are in proguard-rules.pro
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 file("proguard-rules.pro"),

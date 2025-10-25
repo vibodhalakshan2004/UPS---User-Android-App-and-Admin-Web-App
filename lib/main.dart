@@ -1,8 +1,13 @@
-import 'package:flutter/material.dart';
-import 'package:firebase_core/firebase_core.dart';
+import 'dart:async';
+import 'dart:ui' as ui;
+
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:provider/provider.dart';
+import 'package:provider/provider.dart' as legacy_provider;
 import 'firebase_options.dart';
 
 import 'core/theme.dart';
@@ -15,6 +20,7 @@ import 'features/profile/profile_screen.dart';
 import 'features/tax/tax_screen.dart';
 import 'features/tracker/tracker_screen.dart';
 import 'auth/auth_service.dart';
+import 'features/auth/auth_flow_controller.dart';
 import 'features/home/about_screen.dart';
 import 'features/news/news_screen.dart';
 import 'features/news/news_detail_screen.dart';
@@ -31,21 +37,95 @@ void main() async {
   } catch (_) {
     // Some platforms may not support changing persistence; ignore.
   }
-  runApp(const MyApp());
+
+  // Capture framework errors
+  FlutterError.onError = (FlutterErrorDetails details) {
+    FlutterError.presentError(details);
+    _logClientError('flutter_error', details.exceptionAsString(), details.stack);
+  };
+
+  // Catch errors outside Flutter zones (e.g., platform/engine callbacks)
+  ui.PlatformDispatcher.instance.onError = (Object error, StackTrace stack) {
+    _logClientError('platform_error', error.toString(), stack);
+    return true; // mark as handled to avoid default crash
+  };
+
+  // Guard all async errors too
+  final authService = FirebaseAuthService();
+
+  runZonedGuarded(
+    () {
+      WidgetsBinding.instance.addObserver(_AppLifecycleObserver());
+      runApp(
+        ProviderScope(
+          overrides: [
+            authServiceProvider.overrideWith((ref) => authService),
+          ],
+          child: MyApp(authService: authService),
+        ),
+      );
+    },
+    (Object error, StackTrace stack) {
+      _logClientError('zone_error', error.toString(), stack);
+    },
+  );
+}
+
+Future<void> _logClientError(String type, String message, StackTrace? stack) async {
+  // Best-effort, never throw. Rate-limit by sampling to avoid write floods.
+  try {
+    // Only attempt if signed in, to honor Firestore rules
+    if (FirebaseAuth.instance.currentUser == null) return;
+    // Simple 1-in-4 sampling
+    if (DateTime.now().millisecond % 4 != 0) return;
+    await FirebaseFirestore.instance.collection('client_logs').add({
+      'type': type,
+      'message': message,
+      'stack': stack?.toString(),
+      'ts': FieldValue.serverTimestamp(),
+      'platform': 'android',
+    });
+  } catch (_) {
+    // ignore logging failures
+  }
+}
+
+class _AppLifecycleObserver extends WidgetsBindingObserver {
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Log only meaningful transitions and only if signed in
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+    // Best-effort, sampled
+    try {
+      if (DateTime.now().microsecond % 3 != 0) return;
+      FirebaseFirestore.instance.collection('client_logs').add({
+        'type': 'lifecycle',
+        'message': 'state=${state.name}',
+        'stack': null,
+        'ts': FieldValue.serverTimestamp(),
+        'platform': 'android',
+      });
+    } catch (_) {}
+  }
 }
 
 class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+  const MyApp({required this.authService, super.key});
+
+  final AuthService authService;
 
   @override
   Widget build(BuildContext context) {
-    return MultiProvider(
-      providers: [ChangeNotifierProvider(create: (_) => AuthService())],
+    return legacy_provider.MultiProvider(
+      providers: [
+        legacy_provider.ChangeNotifierProvider<AuthService>.value(
+          value: authService,
+        ),
+      ],
       child: Builder(
         builder: (context) {
-          final auth = Provider.of<AuthService>(context, listen: false);
-          // Single router instance that auto-refreshes via refreshListenable
-          final router = _createRouter(auth);
+          final router = _createRouter(authService);
           return MaterialApp.router(
             title: 'UPS',
             theme: AppTheme.lightTheme,

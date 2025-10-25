@@ -5,15 +5,21 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import 'dart:async';
+import 'dart:typed_data';
 import 'package:file_picker/file_picker.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart' as url_launcher;
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart' as ll;
+import 'package:intl/intl.dart';
+import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:printing/printing.dart';
 
 import 'firebase_options.dart';
 import 'core/theme.dart';
+import 'screens/login_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -46,6 +52,113 @@ class AuthService with ChangeNotifier {
   bool get isReady => _ready;
   Future<void> signOut() async {
     await _auth.signOut();
+  }
+}
+
+class _NewsListItem extends StatelessWidget {
+  const _NewsListItem({required this.id, required this.data});
+
+  final String id;
+  final Map<String, dynamic> data;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final title = (data['title'] ?? 'Untitled announcement').toString();
+    final summary = (data['summary'] ?? '').toString();
+    final timestamp = data['publishedAt'] as Timestamp?;
+    final publishedAt = timestamp?.toDate();
+    final imageUrls = (data['imageUrls'] as List?) ?? const [];
+    final pdfUrl = (data['pdfUrl'] as String?)?.isNotEmpty == true;
+    final dateLabel = publishedAt != null
+        ? DateFormat('d MMM y • h:mm a').format(publishedAt)
+        : 'Draft';
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerHighest.withValues(alpha: 0.22),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: scheme.primary.withValues(alpha: 0.04)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Text(
+                  title,
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 16),
+              Text(
+                dateLabel,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: scheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ),
+          if (summary.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            Text(
+              summary,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: scheme.onSurface,
+              ),
+            ),
+          ],
+          const SizedBox(height: 14),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              if (imageUrls.isNotEmpty)
+                _InfoPill(
+                  icon: Icons.collections_outlined,
+                  label:
+                      '${imageUrls.length} image${imageUrls.length == 1 ? '' : 's'}',
+                ),
+              if (pdfUrl)
+                const _InfoPill(
+                  icon: Icons.picture_as_pdf_outlined,
+                  label: 'PDF attachment',
+                ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              TextButton.icon(
+                onPressed: () => context.go('/news/$id'),
+                icon: const Icon(Icons.open_in_new_rounded),
+                label: const Text('Open details'),
+              ),
+              IconButton(
+                tooltip: 'Copy share link',
+                onPressed: () => _copyShareLink(context),
+                icon: const Icon(Icons.link_rounded),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _copyShareLink(BuildContext context) async {
+    final scaffold = ScaffoldMessenger.of(context);
+    final uri = Uri(path: '/news/$id');
+    await Clipboard.setData(ClipboardData(text: uri.toString()));
+    scaffold.showSnackBar(
+      const SnackBar(content: Text('Share link copied to clipboard')),
+    );
   }
 }
 
@@ -207,98 +320,290 @@ class _Splash extends StatelessWidget {
   }
 }
 
-class LoginScreen extends StatefulWidget {
-  const LoginScreen({super.key});
+class NotAuthorizedScreen extends StatelessWidget {
+  const NotAuthorizedScreen({super.key});
 
   @override
-  State<LoginScreen> createState() => _LoginScreenState();
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Scaffold(
+      body: _AdminGradientBackground(
+        child: Center(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 500),
+              child: Card(
+                elevation: 18,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(32),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(32, 40, 32, 32),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: theme.colorScheme.primary.withValues(
+                            alpha: 0.12,
+                          ),
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(
+                          Icons.lock_outline_rounded,
+                          color: theme.colorScheme.primary,
+                          size: 32,
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+                      Text(
+                        'Administrator access required',
+                        textAlign: TextAlign.center,
+                        style: theme.textTheme.headlineSmall?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        'You are signed in but your account lacks administrative privileges. Please contact your system administrator.',
+                        textAlign: TextAlign.center,
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                          height: 1.45,
+                        ),
+                      ),
+                      const SizedBox(height: 28),
+                      FilledButton.icon(
+                        onPressed: () async {
+                          final router = GoRouter.of(context);
+                          await AuditLog.log('sign_out', {
+                            'reason': 'not_authorized',
+                          });
+                          await FirebaseAuth.instance.signOut();
+                          router.go('/login');
+                        },
+                        icon: const Icon(Icons.logout_rounded),
+                        label: const Text('Sign out'),
+                      ),
+                      const SizedBox(height: 12),
+                      TextButton.icon(
+                        onPressed: () {},
+                        icon: const Icon(Icons.support_agent_rounded),
+                        label: const Text('Contact system administrator'),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
-class _LoginScreenState extends State<LoginScreen> {
-  final _email = TextEditingController();
-  final _pass = TextEditingController();
-  bool _loading = false;
-  String? _err;
+class _AdminScaffold extends StatelessWidget {
+  const _AdminScaffold({
+    required this.title,
+    required this.body,
+    this.actions,
+    this.floatingActionButton,
+    this.extendBodyBehindAppBar = true,
+  });
 
-  @override
-  void dispose() {
-    _email.dispose();
-    _pass.dispose();
-    super.dispose();
-  }
-
-  Future<void> _login() async {
-    setState(() => _loading = true);
-    try {
-      await FirebaseAuth.instance.signInWithEmailAndPassword(
-        email: _email.text.trim(),
-        password: _pass.text.trim(),
-      );
-    } on FirebaseAuthException catch (e) {
-      setState(() => _err = e.message);
-    } finally {
-      if (mounted) setState(() => _loading = false);
-    }
-  }
+  final String title;
+  final Widget body;
+  final List<Widget>? actions;
+  final Widget? floatingActionButton;
+  final bool extendBodyBehindAppBar;
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: Row(
-          children: [
-            _Logo(),
-            const SizedBox(width: 8),
-            const Text('Admin Login'),
-          ],
+      drawer: const _Nav(),
+      extendBodyBehindAppBar: extendBodyBehindAppBar,
+      appBar: _AdminAppBar(title: title, actions: actions),
+      floatingActionButton: floatingActionButton,
+      body: body,
+    );
+  }
+}
+
+class _AdminAppBar extends StatelessWidget implements PreferredSizeWidget {
+  const _AdminAppBar({required this.title, this.actions});
+
+  final String title;
+  final List<Widget>? actions;
+
+  @override
+  Size get preferredSize => const Size.fromHeight(72);
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return AppBar(
+      elevation: 0,
+      backgroundColor: Colors.transparent,
+      foregroundColor: Colors.white,
+      centerTitle: false,
+      titleSpacing: 24,
+      flexibleSpace: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [Color(0xFF102A68), Color(0xFF1F4172)],
+          ),
         ),
       ),
-      body: Center(
-        child: SingleChildScrollView(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 420),
-            child: Card(
-              child: Padding(
-                padding: const EdgeInsets.all(20),
+      title: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.18),
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: const Icon(Icons.apartment_rounded, color: Colors.white),
+          ),
+          const SizedBox(width: 12),
+          Text(
+            title,
+            style: theme.textTheme.titleLarge?.copyWith(
+              color: Colors.white,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+      actions: [
+        const _UserBadge(),
+        const SizedBox(width: 16),
+        ...(actions ?? const []),
+        const SizedBox(width: 12),
+      ],
+    );
+  }
+}
+
+class _UserBadge extends StatelessWidget {
+  const _UserBadge();
+
+  @override
+  Widget build(BuildContext context) {
+    final user = FirebaseAuth.instance.currentUser;
+    final email = user?.email ?? 'Admin user';
+    final theme = Theme.of(context);
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(32),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(
+            Icons.verified_user_rounded,
+            color: Colors.white,
+            size: 18,
+          ),
+          const SizedBox(width: 8),
+          Text(
+            email,
+            style: theme.textTheme.labelLarge?.copyWith(
+              color: Colors.white,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _AdminGradientBackground extends StatelessWidget {
+  const _AdminGradientBackground({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [Color(0xFF0F1B3F), Color(0xFF101A2D), Color(0xFFF4F6FB)],
+          stops: [0, 0.38, 1],
+        ),
+      ),
+      child: child,
+    );
+  }
+}
+
+class AdminDashboard extends StatelessWidget {
+  const AdminDashboard({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return _AdminScaffold(
+      title: 'Operations dashboard',
+      actions: [
+        Padding(
+          padding: const EdgeInsets.only(right: 16),
+          child: FilledButton.icon(
+            onPressed: () => context.go('/tracker'),
+            icon: const Icon(Icons.map_rounded),
+            label: const Text('Live tracker'),
+          ),
+        ),
+      ],
+      body: _AdminGradientBackground(
+        child: SafeArea(
+          top: false,
+          child: Center(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(24, 120, 24, 48),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 1200),
                 child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const SizedBox(height: 8),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        _Logo(),
-                        const SizedBox(width: 10),
-                        Text(
-                          'UPS Admin',
-                          style: Theme.of(context).textTheme.titleLarge,
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 20),
-                    TextField(
-                      controller: _email,
-                      decoration: const InputDecoration(labelText: 'Email'),
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: _pass,
-                      decoration: const InputDecoration(labelText: 'Password'),
-                      obscureText: true,
-                    ),
-                    const SizedBox(height: 12),
-                    if (_err != null)
-                      Text(_err!, style: const TextStyle(color: Colors.red)),
-                    const SizedBox(height: 12),
-                    ElevatedButton(
-                      onPressed: _loading ? null : _login,
-                      child: _loading
-                          ? const SizedBox(
-                              height: 18,
-                              width: 18,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Text('Login'),
+                    const _DashboardHero(),
+                    const SizedBox(height: 28),
+                    const _DashboardMetrics(),
+                    const SizedBox(height: 24),
+                    const _DashboardQuickLinks(),
+                    const SizedBox(height: 32),
+                    LayoutBuilder(
+                      builder: (context, constraints) {
+                        final isWide = constraints.maxWidth > 960;
+                        if (isWide) {
+                          return Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: const [
+                              Expanded(child: _RecentBookings()),
+                              SizedBox(width: 20),
+                              Expanded(child: _RecentComplaints()),
+                            ],
+                          );
+                        }
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: const [
+                            _RecentBookings(),
+                            SizedBox(height: 20),
+                            _RecentComplaints(),
+                          ],
+                        );
+                      },
                     ),
                   ],
                 ),
@@ -311,36 +616,360 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 }
 
-class NotAuthorizedScreen extends StatelessWidget {
-  const NotAuthorizedScreen({super.key});
+class _DashboardHero extends StatelessWidget {
+  const _DashboardHero();
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Row(
-          children: [
-            _Logo(),
-            const SizedBox(width: 8),
-            const Text('Not authorized'),
+    final theme = Theme.of(context);
+    return Container(
+      padding: const EdgeInsets.all(32),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(36),
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            theme.colorScheme.primary.withValues(alpha: 0.95),
+            theme.colorScheme.secondary,
           ],
         ),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x55273763),
+            blurRadius: 40,
+            offset: Offset(0, 18),
+          ),
+        ],
       ),
-      body: Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text('Your account is not authorized for admin access.'),
-            const SizedBox(height: 12),
-            ElevatedButton(
-              onPressed: () async {
-                final router = GoRouter.of(context);
-                await AuditLog.log('sign_out', {'reason': 'not_authorized'});
-                await FirebaseAuth.instance.signOut();
-                router.go('/login');
-              },
-              child: const Text('Sign out'),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Command centre',
+            style: theme.textTheme.headlineMedium?.copyWith(
+              color: Colors.white,
+              fontWeight: FontWeight.w700,
             ),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            'Monitor bookings, resolve complaints, publish news, and keep field teams aligned in real time.',
+            style: theme.textTheme.bodyLarge?.copyWith(
+              color: const Color(0xFFE8EFFF),
+              height: 1.5,
+            ),
+          ),
+          const SizedBox(height: 22),
+          Wrap(
+            spacing: 12,
+            runSpacing: 12,
+            children: const [
+              _DashboardHeroChip(
+                icon: Icons.query_stats_rounded,
+                label: 'Live municipal metrics',
+              ),
+              _DashboardHeroChip(
+                icon: Icons.support_agent,
+                label: 'Priority complaint queue',
+              ),
+              _DashboardHeroChip(
+                icon: Icons.route_rounded,
+                label: 'Real-time fleet tracker',
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DashboardHeroChip extends StatelessWidget {
+  const _DashboardHeroChip({required this.icon, required this.label});
+
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.18),
+        borderRadius: BorderRadius.circular(28),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, color: Colors.white, size: 18),
+          const SizedBox(width: 8),
+          Text(
+            label,
+            style: Theme.of(context).textTheme.labelLarge?.copyWith(
+              color: Colors.white,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DashboardMetrics extends StatelessWidget {
+  const _DashboardMetrics();
+
+  @override
+  Widget build(BuildContext context) {
+    return Wrap(
+      spacing: 24,
+      runSpacing: 24,
+      children: const [
+        _StatCard(
+          title: 'Members',
+          icon: Icons.people_alt_rounded,
+          queryType: _StatQuery.users,
+          route: '/users',
+        ),
+        _StatCard(
+          title: 'Open Complaints',
+          icon: Icons.support_agent_rounded,
+          queryType: _StatQuery.complaintsOpen,
+          route: '/complaints',
+        ),
+        _StatCard(
+          title: 'Pending Bookings',
+          icon: Icons.pending_actions_rounded,
+          queryType: _StatQuery.bookingsPending,
+          route: '/bookings',
+        ),
+        _StatCard(
+          title: 'Published News',
+          icon: Icons.newspaper_rounded,
+          queryType: _StatQuery.news,
+          route: '/news',
+        ),
+      ],
+    );
+  }
+}
+
+class _DashboardQuickLinks extends StatelessWidget {
+  const _DashboardQuickLinks();
+
+  @override
+  Widget build(BuildContext context) {
+    return Wrap(
+      spacing: 20,
+      runSpacing: 20,
+      children: const [
+        _DashboardQuickLink(
+          title: 'Bookings',
+          description:
+              'Approve or reject pending service bookings from residents.',
+          icon: Icons.calendar_month_rounded,
+          route: '/bookings',
+        ),
+        _DashboardQuickLink(
+          title: 'Complaints',
+          description:
+              'Track issues raised by residents and update their status.',
+          icon: Icons.fact_check_rounded,
+          route: '/complaints',
+        ),
+        _DashboardQuickLink(
+          title: 'News & Alerts',
+          description:
+              'Publish community updates, tenders, and emergency alerts.',
+          icon: Icons.campaign_rounded,
+          route: '/news',
+        ),
+        _DashboardQuickLink(
+          title: 'Admin Users',
+          description:
+              'Manage staff access and contact details across departments.',
+          icon: Icons.supervisor_account_rounded,
+          route: '/users',
+        ),
+        _DashboardQuickLink(
+          title: 'Live Tracker',
+          description: 'Monitor fleet movement and dispatch routes instantly.',
+          icon: Icons.route_outlined,
+          route: '/tracker',
+        ),
+      ],
+    );
+  }
+}
+
+class _DashboardQuickLink extends StatelessWidget {
+  const _DashboardQuickLink({
+    required this.title,
+    required this.description,
+    required this.icon,
+    required this.route,
+  });
+
+  final String title;
+  final String description;
+  final IconData icon;
+  final String route;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final router = GoRouter.of(context);
+    return Container(
+      constraints: const BoxConstraints(maxWidth: 320),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(28),
+        boxShadow: [
+          BoxShadow(
+            color: theme.colorScheme.primary.withValues(alpha: 0.12),
+            blurRadius: 26,
+            offset: const Offset(0, 12),
+          ),
+        ],
+      ),
+      child: Material(
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(28),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(28),
+          onTap: () => router.go(route),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 24),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.primary.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(18),
+                  ),
+                  child: Icon(icon, color: theme.colorScheme.primary, size: 24),
+                ),
+                const SizedBox(height: 18),
+                Text(
+                  title,
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  description,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                    height: 1.45,
+                  ),
+                ),
+                const SizedBox(height: 20),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      'Open',
+                      style: theme.textTheme.labelLarge?.copyWith(
+                        color: theme.colorScheme.primary,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Icon(
+                      Icons.arrow_outward_rounded,
+                      size: 18,
+                      color: theme.colorScheme.primary,
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _AdminDataCard extends StatelessWidget {
+  const _AdminDataCard({
+    required this.title,
+    required this.icon,
+    required this.child,
+    this.subtitle,
+    this.footer,
+  });
+
+  final String title;
+  final IconData icon;
+  final Widget child;
+  final String? subtitle;
+  final Widget? footer;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(28),
+        color: colorScheme.surface,
+        border: Border.all(color: colorScheme.primary.withValues(alpha: 0.08)),
+        boxShadow: [
+          BoxShadow(
+            color: colorScheme.primary.withValues(alpha: 0.08),
+            blurRadius: 24,
+            offset: const Offset(0, 12),
+          ),
+        ],
+      ),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(24, 26, 24, 24),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: colorScheme.primary.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(18),
+                  ),
+                  child: Icon(icon, color: colorScheme.primary),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      if (subtitle != null) ...[
+                        const SizedBox(height: 4),
+                        Text(
+                          subtitle!,
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            color: colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 24),
+            child,
+            if (footer != null) ...[const SizedBox(height: 20), footer!],
           ],
         ),
       ),
@@ -348,146 +977,248 @@ class NotAuthorizedScreen extends StatelessWidget {
   }
 }
 
-class AdminDashboard extends StatelessWidget {
-  const AdminDashboard({super.key});
+class _AdminDataRow extends StatelessWidget {
+  const _AdminDataRow({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.trailing,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final Widget trailing;
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Row(
-          children: [
-            _Logo(),
-            const SizedBox(width: 8),
-            const Text('UPS Admin'),
-          ],
-        ),
-        actions: [
-          const _UserChip(),
-          const SizedBox(width: 8),
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      decoration: BoxDecoration(
+        color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.18),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: colorScheme.primary.withValues(alpha: 0.12),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(icon, color: colorScheme.primary, size: 20),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  subtitle,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: colorScheme.onSurfaceVariant,
+                    height: 1.4,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 12),
+          trailing,
         ],
       ),
-      drawer: const _Nav(),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            GridView.extent(
-              maxCrossAxisExtent: 260,
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              crossAxisSpacing: 10,
-              mainAxisSpacing: 10,
-              children: const [
-                _StatCard(
-                  title: 'Members',
-                  icon: Icons.people,
-                  queryType: _StatQuery.users,
-                  route: '/users',
-                ),
-                _StatCard(
-                  title: 'Open Complaints',
-                  icon: Icons.report,
-                  queryType: _StatQuery.complaintsOpen,
-                  route: '/complaints',
-                ),
-                _StatCard(
-                  title: 'Pending Bookings',
-                  icon: Icons.pending_actions,
-                  queryType: _StatQuery.bookingsPending,
-                  route: '/bookings',
-                ),
-                _StatCard(
-                  title: 'News Posts',
-                  icon: Icons.newspaper,
-                  queryType: _StatQuery.news,
-                  route: '/news',
-                ),
-                _Tile('Bookings', '/bookings', Icons.calendar_month),
-                _Tile('Complaints', '/complaints', Icons.report),
-                _Tile('News', '/news', Icons.newspaper),
-                _Tile('Users', '/users', Icons.people),
-                _Tile('Tracker', '/tracker', Icons.map),
-              ],
-            ),
-            const SizedBox(height: 16),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: const [
-                Expanded(child: _RecentBookings()),
-                SizedBox(width: 12),
-                Expanded(child: _RecentComplaints()),
-              ],
-            ),
-          ],
+    );
+  }
+}
+
+class _StatusBadge extends StatelessWidget {
+  const _StatusBadge({required this.label, required this.color});
+
+  final String label;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.16),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Text(
+        label,
+        style: Theme.of(context).textTheme.labelMedium?.copyWith(
+          color: color,
+          fontWeight: FontWeight.w600,
         ),
       ),
     );
+  }
+}
+
+class _InfoPill extends StatelessWidget {
+  const _InfoPill({required this.icon, required this.label});
+
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+      decoration: BoxDecoration(
+        color: colorScheme.primary.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 16, color: colorScheme.primary),
+          const SizedBox(width: 6),
+          Flexible(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.labelMedium?.copyWith(
+                color: colorScheme.primary,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+Color _bookingStatusColor(BuildContext context, String status) {
+  final scheme = Theme.of(context).colorScheme;
+  switch (status.toLowerCase()) {
+    case 'approved':
+    case 'confirmed':
+      return Colors.teal;
+    case 'completed':
+      return scheme.primary;
+    case 'rejected':
+    case 'cancelled':
+      return scheme.error;
+    case 'pending':
+    default:
+      return scheme.secondary;
+  }
+}
+
+Color _complaintStatusColor(BuildContext context, String status) {
+  final scheme = Theme.of(context).colorScheme;
+  switch (status.toLowerCase()) {
+    case 'resolved':
+    case 'closed':
+      return Colors.teal;
+    case 'in_progress':
+    case 'processing':
+    case 'investigating':
+      return scheme.primary;
+    case 'rejected':
+    case 'dismissed':
+      return scheme.error;
+    case 'open':
+    default:
+      return scheme.secondary;
   }
 }
 
 class _RecentBookings extends StatelessWidget {
   const _RecentBookings();
 
+  String _formatSubtitle(Map<String, dynamic> data) {
+    final bookingType = (data['bookingType'] ?? data['service'] ?? 'Service')
+        .toString();
+    final slot = (data['timeSlot'] ?? data['slot'] ?? '').toString();
+    final date = data['bookingDate'];
+    DateTime? dt;
+    if (date is Timestamp) dt = date.toDate();
+    final formattedDate = dt != null
+        ? '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')}'
+        : 'Scheduling pending';
+    final parts = <String>[bookingType];
+    if (slot.isNotEmpty) parts.add(slot);
+    parts.add(formattedDate);
+    return parts.join(' • ');
+  }
+
+  Widget _buildRow(BuildContext context, QueryDocumentSnapshot doc) {
+    final data = (doc.data() ?? {}) as Map<String, dynamic>;
+    final name = (data['name'] ?? data['fullName'] ?? 'Resident').toString();
+    final status = (data['status'] ?? 'pending').toString();
+    return _AdminDataRow(
+      icon: Icons.event_available_outlined,
+      title: name,
+      subtitle: _formatSubtitle(data),
+      trailing: _StatusBadge(
+        label: status.toUpperCase(),
+        color: _bookingStatusColor(context, status),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Recent Bookings',
-              style: Theme.of(
-                context,
-              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
-            ),
-            const SizedBox(height: 8),
-            StreamBuilder<QuerySnapshot>(
-              stream: FirebaseFirestore.instance
-                  .collection('bookings')
-                  .orderBy('bookingDate', descending: true)
-                  .limit(5)
-                  .snapshots(),
-              builder: (context, snapshot) {
-                if (!snapshot.hasData) {
-                  return const Center(child: CircularProgressIndicator());
-                }
-                final docs = snapshot.data!.docs;
-                if (docs.isEmpty) return const Text('No recent bookings');
-                return Column(
-                  children: [
-                    for (final d in docs)
-                      ListTile(
-                        dense: true,
-                        title: Text(
-                          ((d.data() as Map<String, dynamic>)['bookingType'] ??
-                                  '')
-                              .toString(),
-                        ),
-                        subtitle: Text(
-                          ((d.data() as Map<String, dynamic>)['bookingDate']
-                                  as Timestamp)
-                              .toDate()
-                              .toLocal()
-                              .toString()
-                              .split(' ')[0],
-                        ),
-                        trailing: Chip(
-                          label: Text(
-                            ((d.data() as Map<String, dynamic>)['status'] ?? '')
-                                .toString(),
-                          ),
-                        ),
-                      ),
-                  ],
-                );
-              },
-            ),
-          ],
+    return _AdminDataCard(
+      title: 'Recent bookings',
+      subtitle: 'Latest service requests from residents',
+      icon: Icons.calendar_month_rounded,
+      footer: Align(
+        alignment: Alignment.centerRight,
+        child: TextButton.icon(
+          onPressed: () => context.go('/bookings'),
+          icon: const Icon(Icons.arrow_outward_rounded),
+          label: const Text('Manage bookings'),
         ),
+      ),
+      child: StreamBuilder<QuerySnapshot>(
+        stream: FirebaseFirestore.instance
+            .collection('bookings')
+            .orderBy('bookingDate', descending: true)
+            .limit(5)
+            .snapshots(),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const SizedBox(
+              height: 120,
+              child: Center(child: CircularProgressIndicator()),
+            );
+          }
+          if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+            return Text(
+              'No bookings recorded yet.',
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            );
+          }
+          final docs = snapshot.data!.docs;
+          return Column(
+            children: [
+              for (var i = 0; i < docs.length; i++) ...[
+                _buildRow(context, docs[i]),
+                if (i != docs.length - 1) const SizedBox(height: 14),
+              ],
+            ],
+          );
+        },
       ),
     );
   }
@@ -496,53 +1227,82 @@ class _RecentBookings extends StatelessWidget {
 class _RecentComplaints extends StatelessWidget {
   const _RecentComplaints();
 
+  String _formatSubtitle(Map<String, dynamic> data) {
+    final category = (data['category'] ?? data['type'] ?? 'General').toString();
+    final location = (data['location'] ?? data['address'] ?? '').toString();
+    final createdAt = data['createdAt'];
+    DateTime? dt;
+    if (createdAt is Timestamp) dt = createdAt.toDate();
+    final dateLabel = dt != null
+        ? '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')}'
+        : 'Date pending';
+    final parts = <String>[category];
+    if (location.isNotEmpty) parts.add(location);
+    parts.add(dateLabel);
+    return parts.join(' • ');
+  }
+
+  Widget _buildRow(BuildContext context, QueryDocumentSnapshot doc) {
+    final data = (doc.data() ?? {}) as Map<String, dynamic>;
+    final name = (data['name'] ?? data['reporterName'] ?? 'Resident')
+        .toString();
+    final status = (data['status'] ?? 'open').toString();
+    return _AdminDataRow(
+      icon: Icons.report_gmailerrorred_rounded,
+      title: name,
+      subtitle: _formatSubtitle(data),
+      trailing: _StatusBadge(
+        label: status.toUpperCase(),
+        color: _complaintStatusColor(context, status),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Recent Complaints',
-              style: Theme.of(
-                context,
-              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
-            ),
-            const SizedBox(height: 8),
-            StreamBuilder<QuerySnapshot>(
-              stream: FirebaseFirestore.instance
-                  .collection('complaints')
-                  .orderBy('createdAt', descending: true)
-                  .limit(5)
-                  .snapshots(),
-              builder: (context, snapshot) {
-                if (!snapshot.hasData) {
-                  return const Center(child: CircularProgressIndicator());
-                }
-                final docs = snapshot.data!.docs;
-                if (docs.isEmpty) return const Text('No recent complaints');
-                return Column(
-                  children: [
-                    for (final d in docs)
-                      ListTile(
-                        dense: true,
-                        title: Text(
-                          ((d.data() as Map<String, dynamic>)['subject'] ?? '')
-                              .toString(),
-                        ),
-                        subtitle: Text(
-                          ((d.data() as Map<String, dynamic>)['status'] ?? '')
-                              .toString(),
-                        ),
-                      ),
-                  ],
-                );
-              },
-            ),
-          ],
+    return _AdminDataCard(
+      title: 'Recent complaints',
+      subtitle: 'Community issues requiring action',
+      icon: Icons.support_agent_rounded,
+      footer: Align(
+        alignment: Alignment.centerRight,
+        child: TextButton.icon(
+          onPressed: () => context.go('/complaints'),
+          icon: const Icon(Icons.arrow_outward_rounded),
+          label: const Text('Review all complaints'),
         ),
+      ),
+      child: StreamBuilder<QuerySnapshot>(
+        stream: FirebaseFirestore.instance
+            .collection('complaints')
+            .orderBy('createdAt', descending: true)
+            .limit(5)
+            .snapshots(),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const SizedBox(
+              height: 120,
+              child: Center(child: CircularProgressIndicator()),
+            );
+          }
+          if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+            return Text(
+              'No complaints have been logged yet.',
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            );
+          }
+          final docs = snapshot.data!.docs;
+          return Column(
+            children: [
+              for (var i = 0; i < docs.length; i++) ...[
+                _buildRow(context, docs[i]),
+                if (i != docs.length - 1) const SizedBox(height: 14),
+              ],
+            ],
+          );
+        },
       ),
     );
   }
@@ -603,59 +1363,114 @@ class _StatCardState extends State<_StatCard> {
 
   @override
   Widget build(BuildContext context) {
-    final color = Theme.of(context).colorScheme;
-    final content = Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(widget.icon, size: 26, color: color.secondary),
-          const SizedBox(height: 6),
-          Text(
-            widget.title,
-            style: Theme.of(
-              context,
-            ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
-          ),
-          const SizedBox(height: 4),
-          FutureBuilder<int>(
-            future: _future,
-            builder: (context, snapshot) {
-              if (!snapshot.hasData) {
-                return const SizedBox(
-                  height: 18,
-                  width: 18,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                );
-              }
-              return Text(
-                snapshot.data!.toString(),
-                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                  fontWeight: FontWeight.bold,
-                ),
-              );
-            },
-          ),
-          if (widget.route != null) ...[
-            const SizedBox(height: 8),
-            TextButton(
-              onPressed: () => context.go(widget.route!),
-              child: const Text('View details'),
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final textTheme = theme.textTheme;
+
+    Widget buildValue() {
+      return FutureBuilder<int>(
+        future: _future,
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const SizedBox(
+              height: 24,
+              width: 24,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            );
+          }
+          if (!snapshot.hasData) {
+            return Text(
+              '—',
+              style: textTheme.displaySmall?.copyWith(
+                fontWeight: FontWeight.w700,
+                color: colorScheme.onSurfaceVariant,
+              ),
+            );
+          }
+          return Text(
+            snapshot.data!.toString(),
+            style: textTheme.displaySmall?.copyWith(
+              fontWeight: FontWeight.w700,
             ),
-          ],
+          );
+        },
+      );
+    }
+
+    return Container(
+      width: 260,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(28),
+        color: colorScheme.surface,
+        border: Border.all(color: colorScheme.primary.withValues(alpha: 0.08)),
+        boxShadow: [
+          BoxShadow(
+            color: colorScheme.primary.withValues(alpha: 0.12),
+            blurRadius: 24,
+            offset: const Offset(0, 12),
+          ),
         ],
       ),
-    );
-    return Card(
-      elevation: 1,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: widget.route == null
-          ? content
-          : InkWell(
-              borderRadius: BorderRadius.circular(12),
-              onTap: () => context.go(widget.route!),
-              child: content,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(28),
+          onTap: widget.route == null ? null : () => context.go(widget.route!),
+          splashColor: colorScheme.primary.withValues(alpha: 0.08),
+          highlightColor: Colors.transparent,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(24, 24, 24, 22),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: colorScheme.primary.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(18),
+                  ),
+                  child: Icon(
+                    widget.icon,
+                    size: 24,
+                    color: colorScheme.primary,
+                  ),
+                ),
+                const SizedBox(height: 20),
+                Text(
+                  widget.title,
+                  style: textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                buildValue(),
+                if (widget.route != null) ...[
+                  const SizedBox(height: 18),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        'View details',
+                        style: textTheme.labelLarge?.copyWith(
+                          color: colorScheme.primary,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      Icon(
+                        Icons.north_east_rounded,
+                        size: 16,
+                        color: colorScheme.primary,
+                      ),
+                    ],
+                  ),
+                ],
+              ],
             ),
+          ),
+        ),
+      ),
     );
   }
 }
@@ -665,72 +1480,163 @@ class _Nav extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final router = GoRouter.of(context);
+    final location = router.routeInformationProvider.value.uri.toString();
+    final theme = Theme.of(context);
+    final items = const [
+      _NavEntry('/dashboard', 'Dashboard', Icons.space_dashboard_rounded),
+      _NavEntry('/bookings', 'Bookings', Icons.event_available_rounded),
+      _NavEntry('/complaints', 'Complaints', Icons.support_agent_rounded),
+      _NavEntry('/news', 'News & alerts', Icons.campaign_rounded),
+      _NavEntry('/users', 'Admin users', Icons.supervisor_account_rounded),
+      _NavEntry('/tracker', 'Live tracker', Icons.route_rounded),
+    ];
+
+    Color tileColor(bool selected) => selected
+        ? theme.colorScheme.primary.withValues(alpha: 0.12)
+        : Colors.transparent;
+
     return Drawer(
-      child: ListView(
-        padding: EdgeInsets.zero,
-        children: [
-          DrawerHeader(
-            child: Row(
-              children: [
-                _Logo(),
-                const SizedBox(width: 12),
-                const Text('UPS Admin'),
-              ],
+      backgroundColor: theme.colorScheme.surface,
+      child: SafeArea(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Container(
+              padding: const EdgeInsets.fromLTRB(20, 26, 20, 24),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    theme.colorScheme.primary,
+                    theme.colorScheme.secondary,
+                  ],
+                ),
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.18),
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: const Icon(
+                      Icons.apartment_rounded,
+                      color: Colors.white,
+                    ),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Udubaddawa PS',
+                          style: theme.textTheme.titleMedium?.copyWith(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Administrative console',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: Colors.white70,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
             ),
-          ),
-          ListTile(
-            dense: true,
-            visualDensity: const VisualDensity(horizontal: -2, vertical: -2),
-            title: const Text('Dashboard'),
-            onTap: () => context.go('/dashboard'),
-          ),
-          ListTile(
-            dense: true,
-            visualDensity: const VisualDensity(horizontal: -2, vertical: -2),
-            title: const Text('Bookings'),
-            onTap: () => context.go('/bookings'),
-          ),
-          ListTile(
-            dense: true,
-            visualDensity: const VisualDensity(horizontal: -2, vertical: -2),
-            title: const Text('Complaints'),
-            onTap: () => context.go('/complaints'),
-          ),
-          ListTile(
-            dense: true,
-            visualDensity: const VisualDensity(horizontal: -2, vertical: -2),
-            title: const Text('News'),
-            onTap: () => context.go('/news'),
-          ),
-          ListTile(
-            dense: true,
-            visualDensity: const VisualDensity(horizontal: -2, vertical: -2),
-            title: const Text('Users'),
-            onTap: () => context.go('/users'),
-          ),
-          ListTile(
-            dense: true,
-            visualDensity: const VisualDensity(horizontal: -2, vertical: -2),
-            title: const Text('Tracker'),
-            onTap: () => context.go('/tracker'),
-          ),
-          const Divider(),
-          ListTile(
-            dense: true,
-            visualDensity: const VisualDensity(horizontal: -2, vertical: -2),
-            title: const Text('Sign out'),
-            onTap: () async {
-              // Capture router before awaiting to avoid using context after await
-              final router = GoRouter.of(context);
-              await AuditLog.log('sign_out', {'reason': 'user_initiated'});
-              await FirebaseAuth.instance.signOut();
-              router.go('/login');
-            },
-          ),
-        ],
+            Expanded(
+              child: ListView.builder(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 12,
+                ),
+                itemCount: items.length,
+                itemBuilder: (context, index) {
+                  final item = items[index];
+                  final selected =
+                      location == item.route ||
+                      (location.startsWith(item.route) &&
+                          item.route != '/dashboard');
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    child: ListTile(
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      tileColor: tileColor(selected),
+                      leading: Icon(
+                        item.icon,
+                        color: selected
+                            ? theme.colorScheme.primary
+                            : theme.colorScheme.onSurfaceVariant,
+                      ),
+                      title: Text(
+                        item.label,
+                        style: theme.textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      onTap: () {
+                        Navigator.of(context).pop();
+                        if (!selected) {
+                          router.go(item.route);
+                        }
+                      },
+                    ),
+                  );
+                },
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(18, 0, 18, 18),
+              child: Column(
+                children: [
+                  const Divider(),
+                  const SizedBox(height: 12),
+                  FilledButton.tonalIcon(
+                    onPressed: () async {
+                      Navigator.of(context).pop();
+                      await AuditLog.log('sign_out', {
+                        'reason': 'user_initiated',
+                      });
+                      await FirebaseAuth.instance.signOut();
+                      router.go('/login');
+                    },
+                    icon: const Icon(Icons.logout_rounded),
+                    label: const Text('Sign out'),
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    'Need help? Call +94 11 234 5678',
+                    textAlign: TextAlign.center,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
+}
+
+class _NavEntry {
+  const _NavEntry(this.route, this.label, this.icon);
+
+  final String route;
+  final String label;
+  final IconData icon;
 }
 
 class _Logo extends StatelessWidget {
@@ -744,63 +1650,6 @@ class _Logo extends StatelessWidget {
       fit: BoxFit.contain,
       errorBuilder: (context, error, stack) =>
           const Icon(Icons.apartment, size: 28),
-    );
-  }
-}
-
-class _UserChip extends StatelessWidget {
-  const _UserChip();
-
-  @override
-  Widget build(BuildContext context) {
-    final user = FirebaseAuth.instance.currentUser;
-    final email = user?.email ?? 'Admin';
-    final isAdmin = context.read<RolesService>().isAdmin;
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 8.0),
-      child: InputChip(
-        avatar: const CircleAvatar(child: Icon(Icons.person, size: 16)),
-        label: Text(email, overflow: TextOverflow.ellipsis),
-        tooltip: isAdmin ? 'Signed in as admin' : 'Signed in',
-        onPressed: null, // decorative
-      ),
-    );
-  }
-}
-
-class _Tile extends StatelessWidget {
-  final String title;
-  final String route;
-  final IconData icon;
-
-  const _Tile(this.title, this.route, this.icon);
-
-  @override
-  Widget build(BuildContext context) {
-    final color = Theme.of(context).colorScheme;
-    return Card(
-      elevation: 1,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(12),
-        onTap: () => context.go(route),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(icon, size: 28, color: color.secondary),
-              const SizedBox(height: 6),
-              Text(
-                title,
-                style: Theme.of(
-                  context,
-                ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
-              ),
-            ],
-          ),
-        ),
-      ),
     );
   }
 }
@@ -820,61 +1669,83 @@ class _AdminTrackerScreenState extends State<AdminTrackerScreen> {
     return FirebaseFirestore.instance
         .collection('vehicles')
         .snapshots()
-        .map(
-          (s) => s.docs
-              .map((d) => _AdminMapItem.fromDoc(d))
-              .toList(),
-        )
+        .map((s) => s.docs.map((d) => _AdminMapItem.fromDoc(d)).toList())
         .handleError((_) => <_AdminMapItem>[]);
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Row(
-          children: [_Logo(), const SizedBox(width: 8), const Text('Tracker')],
-        ),
-        actions: [
-          _UserChip(),
-          SizedBox(width: 8),
-        ],
-      ),
-      drawer: const _Nav(),
-      floatingActionButton: null,
-      body: StreamBuilder<List<_AdminMapItem>>(
-        stream: _itemsStream(),
-        builder: (context, snapshot) {
-          final items = snapshot.data ?? const <_AdminMapItem>[];
-          return LayoutBuilder(
-            builder: (context, constraints) {
-              final wide = constraints.maxWidth >= 900;
-              final mapWidget = _TrackerMap(
-                controller: _mapController,
-                items: items,
-                onTapItem: _showVehiclePopup,
-              );
-              final panel = _TrackerVehiclesPanel(onChanged: () => setState(() {}));
-              if (wide) {
-                return Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(child: mapWidget),
-                    const SizedBox(width: 12),
-                    SizedBox(width: 420, child: panel),
-                  ],
-                );
-              }
-              return Column(
-                children: [
-                  SizedBox(height: 380, child: mapWidget),
-                  const SizedBox(height: 8),
-                  panel,
-                ],
+    return _AdminScaffold(
+      title: 'Live fleet tracker',
+      floatingActionButton: _TrackerActions(onChanged: () => setState(() {})),
+      body: _AdminGradientBackground(
+        child: SafeArea(
+          top: false,
+          child: StreamBuilder<List<_AdminMapItem>>(
+            stream: _itemsStream(),
+            builder: (context, snapshot) {
+              final items = snapshot.data ?? const <_AdminMapItem>[];
+              return Padding(
+                padding: const EdgeInsets.fromLTRB(24, 120, 24, 24),
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    final wide = constraints.maxWidth >= 1100;
+                    final map = _TrackerMap(
+                      controller: _mapController,
+                      items: items,
+                      onTapItem: _showVehiclePopup,
+                    );
+                    final mapCard = Container(
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(32),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Theme.of(
+                              context,
+                            ).colorScheme.primary.withValues(alpha: 0.12),
+                            blurRadius: 32,
+                            offset: const Offset(0, 20),
+                          ),
+                        ],
+                      ),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(32),
+                        child: Container(
+                          color: Theme.of(context).colorScheme.surface,
+                          child: map,
+                        ),
+                      ),
+                    );
+                    final panel = SizedBox(
+                      width: wide ? 420 : double.infinity,
+                      child: _TrackerVehiclesPanel(
+                        onChanged: () => setState(() {}),
+                      ),
+                    );
+                    if (wide) {
+                      return Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(child: mapCard),
+                          const SizedBox(width: 24),
+                          panel,
+                        ],
+                      );
+                    }
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        SizedBox(height: 420, child: mapCard),
+                        const SizedBox(height: 20),
+                        panel,
+                      ],
+                    );
+                  },
+                ),
               );
             },
-          );
-        },
+          ),
+        ),
       ),
     );
   }
@@ -885,6 +1756,7 @@ class _AdminTrackerScreenState extends State<AdminTrackerScreen> {
       final d = dt.toLocal();
       return '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')} ${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
     }
+
     await showDialog(
       context: context,
       builder: (c) => AlertDialog(
@@ -893,37 +1765,50 @@ class _AdminTrackerScreenState extends State<AdminTrackerScreen> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(children: [
-              const Icon(Icons.schedule, size: 16),
-              const SizedBox(width: 6),
-              Text('Last updated: ${fmt(item.updatedAt)}'),
-            ]),
+            Row(
+              children: [
+                const Icon(Icons.schedule, size: 16),
+                const SizedBox(width: 6),
+                Text('Last updated: ${fmt(item.updatedAt)}'),
+              ],
+            ),
             const SizedBox(height: 8),
-            Row(children: [
-              const Icon(Icons.place, size: 16),
-              const SizedBox(width: 6),
-              Text('Lat: ${item.lat?.toStringAsFixed(5) ?? '—'}  •  Lng: ${item.lng?.toStringAsFixed(5) ?? '—'}'),
-            ]),
+            Row(
+              children: [
+                const Icon(Icons.place, size: 16),
+                const SizedBox(width: 6),
+                Text(
+                  'Lat: ${item.lat?.toStringAsFixed(5) ?? '—'}  •  Lng: ${item.lng?.toStringAsFixed(5) ?? '—'}',
+                ),
+              ],
+            ),
             if (item.speedKph != null) ...[
               const SizedBox(height: 8),
-              Row(children: [
-                const Icon(Icons.speed, size: 16),
-                const SizedBox(width: 6),
-                Text('Speed: ${item.speedKph!.toStringAsFixed(1)} km/h'),
-              ]),
+              Row(
+                children: [
+                  const Icon(Icons.speed, size: 16),
+                  const SizedBox(width: 6),
+                  Text('Speed: ${item.speedKph!.toStringAsFixed(1)} km/h'),
+                ],
+              ),
             ],
             if (item.heading != null) ...[
               const SizedBox(height: 8),
-              Row(children: [
-                const Icon(Icons.navigation, size: 16),
-                const SizedBox(width: 6),
-                Text('Heading: ${item.heading!.toStringAsFixed(0)}°'),
-              ]),
+              Row(
+                children: [
+                  const Icon(Icons.navigation, size: 16),
+                  const SizedBox(width: 6),
+                  Text('Heading: ${item.heading!.toStringAsFixed(0)}°'),
+                ],
+              ),
             ],
           ],
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.of(c).pop(), child: const Text('Close')),
+          TextButton(
+            onPressed: () => Navigator.of(c).pop(),
+            child: const Text('Close'),
+          ),
         ],
       ),
     );
@@ -947,7 +1832,11 @@ class _AdminMarkerIcon extends StatelessWidget {
             boxShadow: const [BoxShadow(blurRadius: 6, color: Colors.black26)],
           ),
           padding: const EdgeInsets.all(6),
-          child: const Icon(Icons.local_shipping, color: Colors.white, size: 16),
+          child: const Icon(
+            Icons.local_shipping,
+            color: Colors.white,
+            size: 16,
+          ),
         ),
         const SizedBox(height: 4),
         Container(
@@ -990,9 +1879,7 @@ class _AdminMapItem {
     this.heading,
   });
 
-  factory _AdminMapItem.fromDoc(
-    DocumentSnapshot<Map<String, dynamic>> doc,
-  ) {
+  factory _AdminMapItem.fromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
     final data = doc.data() ?? {};
     final lat = (data['lat'] as num?)?.toDouble();
     final lng = (data['lng'] as num?)?.toDouble();
@@ -1017,7 +1904,6 @@ class _AdminMapItem {
       heading: head,
     );
   }
-
 }
 
 class _TrackerLegend extends StatelessWidget {
@@ -1027,12 +1913,14 @@ class _TrackerLegend extends StatelessWidget {
   bool _isRecent(DateTime? dt) {
     if (dt == null) return false;
     return DateTime.now().difference(dt).inMinutes <= 5;
-    }
+  }
 
   @override
   Widget build(BuildContext context) {
     final trucks = items.length;
-    final recent = items.where((e) => e.active && _isRecent(e.updatedAt)).length;
+    final recent = items
+        .where((e) => e.active && _isRecent(e.updatedAt))
+        .length;
     final stale = trucks - recent;
     return Padding(
       padding: const EdgeInsets.all(12.0),
@@ -1072,10 +1960,21 @@ class _TrackerActions extends StatelessWidget {
     );
   }
 
-  Future<void> _showVehicleDialog(BuildContext context, {String? id, Map<String, dynamic>? existing}) async {
-    final name = TextEditingController(text: existing?['name'] as String? ?? '');
-    final lat = TextEditingController(text: (existing?['lat']?.toString()) ?? '');
-    final lng = TextEditingController(text: (existing?['lng']?.toString()) ?? '');
+  Future<void> _showVehicleDialog(
+    BuildContext context, {
+    String? id,
+    Map<String, dynamic>? existing,
+  }) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final name = TextEditingController(
+      text: existing?['name'] as String? ?? '',
+    );
+    final lat = TextEditingController(
+      text: (existing?['lat']?.toString()) ?? '',
+    );
+    final lng = TextEditingController(
+      text: (existing?['lng']?.toString()) ?? '',
+    );
     bool active = (existing?['active'] as bool?) ?? true;
     final ok = await showDialog<bool>(
       context: context,
@@ -1086,29 +1985,57 @@ class _TrackerActions extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              TextField(controller: name, decoration: const InputDecoration(labelText: 'Name')),
-              TextField(controller: lat, decoration: const InputDecoration(labelText: 'Latitude'), keyboardType: TextInputType.number),
-              TextField(controller: lng, decoration: const InputDecoration(labelText: 'Longitude'), keyboardType: TextInputType.number),
-              Row(children: [
-                Checkbox(value: active, onChanged: (v){ active = v ?? true; (c as Element).markNeedsBuild(); }),
-                const Text('Active')
-              ])
+              TextField(
+                controller: name,
+                decoration: const InputDecoration(labelText: 'Name'),
+              ),
+              TextField(
+                controller: lat,
+                decoration: const InputDecoration(labelText: 'Latitude'),
+                keyboardType: TextInputType.number,
+              ),
+              TextField(
+                controller: lng,
+                decoration: const InputDecoration(labelText: 'Longitude'),
+                keyboardType: TextInputType.number,
+              ),
+              Row(
+                children: [
+                  Checkbox(
+                    value: active,
+                    onChanged: (v) {
+                      active = v ?? true;
+                      (c as Element).markNeedsBuild();
+                    },
+                  ),
+                  const Text('Active'),
+                ],
+              ),
             ],
           ),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.of(c).pop(false), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.of(c).pop(true), child: const Text('Save')),
+          TextButton(
+            onPressed: () => Navigator.of(c).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(c).pop(true),
+            child: const Text('Save'),
+          ),
         ],
       ),
     );
     if (ok != true) return;
+    if (!context.mounted) return;
     final n = name.text.trim();
     final la = double.tryParse(lat.text.trim());
     final ln = double.tryParse(lng.text.trim());
     if (n.isEmpty || la == null || ln == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please provide a name, valid latitude and longitude.')),
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text('Please provide a name, valid latitude and longitude.'),
+        ),
       );
       return;
     }
@@ -1124,19 +2051,18 @@ class _TrackerActions extends StatelessWidget {
       if (id == null) {
         await col.add(data);
         await AuditLog.log('vehicle_create', data);
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Truck added')),
-        );
+        if (!context.mounted) return;
+        messenger.showSnackBar(const SnackBar(content: Text('Truck added')));
       } else {
         await col.doc(id).update(data);
         await AuditLog.log('vehicle_update', {'id': id, ...data});
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Truck updated')),
-        );
+        if (!context.mounted) return;
+        messenger.showSnackBar(const SnackBar(content: Text('Truck updated')));
       }
       onChanged();
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (!context.mounted) return;
+      messenger.showSnackBar(
         SnackBar(content: Text('Failed to save truck: $e')),
       );
     }
@@ -1150,159 +2076,326 @@ class _TrackerVehiclesPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isAdmin = context.watch<RolesService>().isAdmin;
-    return Card(
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Container(
+      decoration: BoxDecoration(
+        color: scheme.surface,
+        borderRadius: BorderRadius.circular(28),
+        border: Border.all(color: scheme.primary.withValues(alpha: 0.08)),
+        boxShadow: [
+          BoxShadow(
+            color: scheme.primary.withValues(alpha: 0.08),
+            blurRadius: 24,
+            offset: const Offset(0, 14),
+          ),
+        ],
+      ),
       child: Padding(
-        padding: const EdgeInsets.only(bottom: 8),
+        padding: const EdgeInsets.fromLTRB(24, 24, 24, 20),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            ListTile(
-              title: const Text('Trucks'),
-              trailing: IconButton(
-                tooltip: 'Add Truck',
-                icon: const Icon(Icons.add),
-                onPressed: isAdmin
-                    ? () => _TrackerActions(onChanged: onChanged)
-                        ._showVehicleDialog(context)
-                    : null,
-              ),
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: scheme.primary.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(18),
+                  ),
+                  child: const Icon(
+                    Icons.local_shipping_rounded,
+                    color: Colors.white,
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Fleet vehicles',
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Manage active trucks and their live telemetry.',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: scheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'Add vehicle',
+                  icon: const Icon(Icons.add_circle_outline_rounded),
+                  onPressed: isAdmin
+                      ? () => _TrackerActions(
+                          onChanged: onChanged,
+                        )._showVehicleDialog(context)
+                      : null,
+                ),
+              ],
             ),
+            const SizedBox(height: 18),
             SizedBox(
               height: 360,
               child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                stream: FirebaseFirestore.instance.collection('vehicles').snapshots(),
+                stream: FirebaseFirestore.instance
+                    .collection('vehicles')
+                    .snapshots(),
                 builder: (context, snapshot) {
                   if (snapshot.hasError) {
                     return Center(
                       child: Padding(
                         padding: const EdgeInsets.all(12),
-                        child: Text('Failed to load trucks: ${snapshot.error}', textAlign: TextAlign.center),
+                        child: Text(
+                          'Failed to load trucks: ${snapshot.error}',
+                          textAlign: TextAlign.center,
+                        ),
                       ),
                     );
                   }
-                  if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
+                  if (!snapshot.hasData) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
                   final docs = snapshot.data!.docs.toList();
-                  // sort by updatedAt desc
                   docs.sort((a, b) {
+                    DateTime? da;
+                    DateTime? db;
                     final ta = a.data()['updatedAt'];
                     final tb = b.data()['updatedAt'];
-                    DateTime? da = ta is Timestamp ? ta.toDate() : null;
-                    DateTime? db = tb is Timestamp ? tb.toDate() : null;
+                    if (ta is Timestamp) da = ta.toDate();
+                    if (tb is Timestamp) db = tb.toDate();
                     if (da == null && db == null) return 0;
                     if (da == null) return 1;
                     if (db == null) return -1;
                     return db.compareTo(da);
                   });
-                  final total = docs.length;
+
                   int recent = 0;
-                  bool isRecent(DateTime? dt) => dt != null && DateTime.now().difference(dt).inMinutes <= 5;
+                  bool isRecent(DateTime? dt) =>
+                      dt != null &&
+                      DateTime.now().difference(dt).inMinutes <= 5;
                   for (final d in docs) {
                     final ts = d.data()['updatedAt'];
                     final dt = ts is Timestamp ? ts.toDate() : null;
                     final active = (d.data()['active'] as bool?) ?? false;
                     if (active && isRecent(dt)) recent++;
                   }
+                  final total = docs.length;
                   final stale = total - recent;
+
                   return Column(
                     children: [
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 12.0),
-                        child: Wrap(
-                          spacing: 8,
-                          children: [
-                            Chip(avatar: const CircleAvatar(backgroundColor: Colors.green), label: Text('Recent: $recent')),
-                            Chip(avatar: const CircleAvatar(backgroundColor: Colors.red), label: Text('Stale: $stale')),
-                            Chip(avatar: const CircleAvatar(backgroundColor: Colors.blueGrey), label: Text('Total: $total')),
-                          ],
-                        ),
+                      Wrap(
+                        spacing: 12,
+                        runSpacing: 12,
+                        children: [
+                          _InfoPill(
+                            icon: Icons.speed_rounded,
+                            label: 'Active: $recent',
+                          ),
+                          _InfoPill(
+                            icon: Icons.warning_amber_rounded,
+                            label: 'Stale: $stale',
+                          ),
+                          _InfoPill(
+                            icon: Icons.directions_car_filled_rounded,
+                            label: 'Fleet: $total',
+                          ),
+                        ],
                       ),
-                      const Divider(height: 1),
+                      const SizedBox(height: 16),
                       Expanded(
-                        child: ListView.builder(
+                        child: ListView.separated(
                           itemCount: docs.length,
-                          itemBuilder: (_, i) {
-                            final doc = docs[i];
-                            final d = doc.data();
-                            final active = (d['active'] as bool?) ?? false;
-                            final lat = (d['lat'] as num?)?.toDouble();
-                            final lng = (d['lng'] as num?)?.toDouble();
-                            final ts = d['updatedAt'];
-                            final updatedAt = ts is Timestamp ? ts.toDate() : null;
-                            String fmtAgo(DateTime? dt) {
-                              if (dt == null) return '—';
-                              final diff = DateTime.now().difference(dt);
-                              if (diff.inMinutes < 1) return 'just now';
-                              if (diff.inMinutes < 60) return '${diff.inMinutes} min ago';
-                              if (diff.inHours < 24) return '${diff.inHours} h ago';
-                              return '${diff.inDays} d ago';
-                            }
+                          separatorBuilder: (context, _) =>
+                              const SizedBox(height: 12),
+                          itemBuilder: (context, index) {
+                            final doc = docs[index];
+                            final vehicle = doc.data();
+                            final active =
+                                (vehicle['active'] as bool?) ?? false;
+                            final lat = (vehicle['lat'] as num?)?.toDouble();
+                            final lng = (vehicle['lng'] as num?)?.toDouble();
+                            final ts = vehicle['updatedAt'];
+                            final updatedAt = ts is Timestamp
+                                ? ts.toDate()
+                                : null;
                             final recentRow = active && isRecent(updatedAt);
-                            Color statusColor = recentRow ? Colors.green : Colors.red;
-                            return ListTile(
-                              dense: true,
-                              leading: Icon(Icons.circle, color: statusColor, size: 12),
-                              title: Text(d['name']?.toString() ?? doc.id),
-                              subtitle: Text('Lat: ${lat?.toStringAsFixed(5) ?? '—'}  •  Lng: ${lng?.toStringAsFixed(5) ?? '—'}\nUpdated: ${fmtAgo(updatedAt)}'),
-                              isThreeLine: true,
-                              trailing: Row(
-                                mainAxisSize: MainAxisSize.min,
+
+                            return Container(
+                              padding: const EdgeInsets.all(16),
+                              decoration: BoxDecoration(
+                                color: scheme.surfaceContainerHighest
+                                    .withValues(alpha: 0.16),
+                                borderRadius: BorderRadius.circular(20),
+                              ),
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Switch(
-                                    value: active,
-                                    onChanged: isAdmin
-                                        ? (v) async {
-                                            try {
-                                              await FirebaseFirestore.instance
-                                                  .collection('vehicles')
-                                                  .doc(doc.id)
-                                                  .update({'active': v});
-                                              await AuditLog.log(
-                                                  'vehicle_set_active',
-                                                  {'id': doc.id, 'active': v});
-                                              onChanged();
-                                            } catch (e) {
-                                              ScaffoldMessenger.of(context)
-                                                  .showSnackBar(SnackBar(
-                                                      content: Text(
-                                                          'Failed to update active: $e')));
-                                            }
-                                          }
-                                        : null,
+                                  Container(
+                                    padding: const EdgeInsets.all(10),
+                                    decoration: BoxDecoration(
+                                      color:
+                                          (recentRow
+                                                  ? Colors.green
+                                                  : scheme.error)
+                                              .withValues(alpha: 0.14),
+                                      shape: BoxShape.circle,
+                                    ),
+                                    child: Icon(
+                                      recentRow
+                                          ? Icons.check_circle
+                                          : Icons.timelapse,
+                                      color: recentRow
+                                          ? Colors.green
+                                          : scheme.error,
+                                      size: 20,
+                                    ),
                                   ),
-                                  if (isAdmin)
-                                    IconButton(
-                                      tooltip: 'Edit',
-                                      icon: const Icon(Icons.edit),
-                                      onPressed: () => _TrackerActions(
-                                              onChanged: onChanged)
-                                          ._showVehicleDialog(context,
-                                              id: doc.id, existing: d),
+                                  const SizedBox(width: 14),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          vehicle['name']?.toString() ?? doc.id,
+                                          style: theme.textTheme.titleSmall
+                                              ?.copyWith(
+                                                fontWeight: FontWeight.w700,
+                                              ),
+                                        ),
+                                        const SizedBox(height: 4),
+                                        Text(
+                                          'Lat: ${lat?.toStringAsFixed(5) ?? '—'}  •  Lng: ${lng?.toStringAsFixed(5) ?? '—'}',
+                                          style: theme.textTheme.bodySmall
+                                              ?.copyWith(
+                                                color: scheme.onSurfaceVariant,
+                                              ),
+                                        ),
+                                        const SizedBox(height: 4),
+                                        Text(
+                                          'Updated ${_relativeTime(updatedAt)}',
+                                          style: theme.textTheme.bodySmall
+                                              ?.copyWith(
+                                                color: scheme.onSurfaceVariant,
+                                              ),
+                                        ),
+                                      ],
                                     ),
-                                  if (isAdmin)
-                                    IconButton(
-                                      tooltip: 'Delete',
-                                      icon: const Icon(Icons.delete),
-                                      onPressed: () async {
-                                        try {
-                                          await FirebaseFirestore.instance
-                                              .collection('vehicles')
-                                              .doc(doc.id)
-                                              .delete();
-                                          await AuditLog.log('vehicle_delete',
-                                              {'id': doc.id});
-                                          onChanged();
-                                          ScaffoldMessenger.of(context)
-                                              .showSnackBar(const SnackBar(
-                                                  content:
-                                                      Text('Truck deleted')));
-                                        } catch (e) {
-                                          ScaffoldMessenger.of(context)
-                                              .showSnackBar(SnackBar(
-                                                  content: Text(
-                                                      'Failed to delete truck: $e')));
-                                        }
-                                      },
-                                    ),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Column(
+                                    crossAxisAlignment: CrossAxisAlignment.end,
+                                    children: [
+                                      Switch(
+                                        value: active,
+                                        onChanged: isAdmin
+                                            ? (value) async {
+                                                final messenger =
+                                                    ScaffoldMessenger.of(
+                                                      context,
+                                                    );
+                                                try {
+                                                  await FirebaseFirestore
+                                                      .instance
+                                                      .collection('vehicles')
+                                                      .doc(doc.id)
+                                                      .update({
+                                                        'active': value,
+                                                      });
+                                                  await AuditLog.log(
+                                                    'vehicle_set_active',
+                                                    {
+                                                      'id': doc.id,
+                                                      'active': value,
+                                                    },
+                                                  );
+                                                  onChanged();
+                                                } catch (e) {
+                                                  if (!context.mounted) return;
+                                                  messenger.showSnackBar(
+                                                    SnackBar(
+                                                      content: Text(
+                                                        'Failed to update active flag: $e',
+                                                      ),
+                                                    ),
+                                                  );
+                                                }
+                                              }
+                                            : null,
+                                      ),
+                                      const SizedBox(height: 8),
+                                      if (isAdmin)
+                                        Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            IconButton(
+                                              tooltip: 'Edit vehicle',
+                                              icon: const Icon(
+                                                Icons.edit_outlined,
+                                              ),
+                                              onPressed: () =>
+                                                  _TrackerActions(
+                                                    onChanged: onChanged,
+                                                  )._showVehicleDialog(
+                                                    context,
+                                                    id: doc.id,
+                                                    existing: vehicle,
+                                                  ),
+                                            ),
+                                            IconButton(
+                                              tooltip: 'Delete vehicle',
+                                              icon: const Icon(
+                                                Icons.delete_outline,
+                                              ),
+                                              onPressed: () async {
+                                                final messenger =
+                                                    ScaffoldMessenger.of(
+                                                      context,
+                                                    );
+                                                try {
+                                                  await FirebaseFirestore
+                                                      .instance
+                                                      .collection('vehicles')
+                                                      .doc(doc.id)
+                                                      .delete();
+                                                  await AuditLog.log(
+                                                    'vehicle_delete',
+                                                    {'id': doc.id},
+                                                  );
+                                                  onChanged();
+                                                  if (!context.mounted) return;
+                                                  messenger.showSnackBar(
+                                                    const SnackBar(
+                                                      content: Text(
+                                                        'Vehicle removed',
+                                                      ),
+                                                    ),
+                                                  );
+                                                } catch (e) {
+                                                  if (!context.mounted) return;
+                                                  messenger.showSnackBar(
+                                                    SnackBar(
+                                                      content: Text(
+                                                        'Failed to delete vehicle: $e',
+                                                      ),
+                                                    ),
+                                                  );
+                                                }
+                                              },
+                                            ),
+                                          ],
+                                        ),
+                                    ],
+                                  ),
                                 ],
                               ),
                             );
@@ -1319,6 +2412,15 @@ class _TrackerVehiclesPanel extends StatelessWidget {
       ),
     );
   }
+
+  String _relativeTime(DateTime? dt) {
+    if (dt == null) return '—';
+    final diff = DateTime.now().difference(dt);
+    if (diff.inMinutes < 1) return 'just now';
+    if (diff.inMinutes < 60) return '${diff.inMinutes} min ago';
+    if (diff.inHours < 24) return '${diff.inHours} h ago';
+    return '${diff.inDays} d ago';
+  }
 }
 
 // removed _VehiclesList/_BinsList in favor of unified _TrackerVehiclesPanel
@@ -1327,7 +2429,11 @@ class _TrackerMap extends StatelessWidget {
   final MapController controller;
   final List<_AdminMapItem> items;
   final void Function(_AdminMapItem) onTapItem;
-  const _TrackerMap({required this.controller, required this.items, required this.onTapItem});
+  const _TrackerMap({
+    required this.controller,
+    required this.items,
+    required this.onTapItem,
+  });
 
   bool _isRecent(DateTime? dt) {
     if (dt == null) return false;
@@ -1352,7 +2458,9 @@ class _TrackerMap extends StatelessWidget {
               tileProvider: NetworkTileProvider(),
             ),
             RichAttributionWidget(
-              attributions: const [TextSourceAttribution('© OpenStreetMap contributors')],
+              attributions: const [
+                TextSourceAttribution('© OpenStreetMap contributors'),
+              ],
             ),
             MarkerLayer(
               markers: [
@@ -1365,7 +2473,9 @@ class _TrackerMap extends StatelessWidget {
                       onTap: () => onTapItem(it),
                       child: _AdminMarkerIcon(
                         label: it.name,
-                        color: (it.active && _isRecent(it.updatedAt)) ? Colors.green : Colors.red,
+                        color: (it.active && _isRecent(it.updatedAt))
+                            ? Colors.green
+                            : Colors.red,
                       ),
                     ),
                   ),
@@ -1421,77 +2531,68 @@ class BookingsAdminScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Row(
-          children: [_Logo(), const SizedBox(width: 8), const Text('Bookings')],
-        ),
-      ),
-      drawer: const _Nav(),
+    return _AdminScaffold(
+      title: 'Bookings console',
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => _createManualBooking(context),
         icon: const Icon(Icons.add),
-        label: const Text('Add Booking'),
+        label: const Text('Add booking'),
       ),
-      body: StreamBuilder<QuerySnapshot>(
-        stream: FirebaseFirestore.instance
-            .collection('bookings')
-            .orderBy('bookingDate', descending: true)
-            .snapshots(),
-        builder: (context, snapshot) {
-          if (snapshot.hasError) {
-            return Center(child: Text('Error: ${snapshot.error}'));
-          }
-          if (!snapshot.hasData) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          final docs = snapshot.data!.docs;
-          return ListView.separated(
-            padding: const EdgeInsets.all(16),
-            separatorBuilder: (_, i) => const SizedBox(height: 8),
-            itemCount: docs.length,
-            itemBuilder: (_, i) {
-              final d = docs[i].data() as Map<String, dynamic>;
-              final id = docs[i].id;
-              final status = (d['status'] as String?) ?? 'pending';
-              final u = (d['userId'] as String?) ?? '';
-              final type = (d['bookingType'] as String?) ?? '';
-              final date = (d['bookingDate'] as Timestamp?)?.toDate();
-              return Card(
-                child: ListTile(
-                  title: Text(
-                    '$type • ${date != null ? '${date.toLocal()}'.split(' ')[0] : ''}',
+      body: _AdminGradientBackground(
+        child: SafeArea(
+          top: false,
+          child: StreamBuilder<QuerySnapshot>(
+            stream: FirebaseFirestore.instance
+                .collection('bookings')
+                .orderBy('bookingDate', descending: true)
+                .snapshots(),
+            builder: (context, snapshot) {
+              if (snapshot.hasError) {
+                return Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: Text('Failed to load bookings: ${snapshot.error}'),
                   ),
-                  subtitle: Text('User: $u'),
-                  trailing: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      IconButton(
-                        tooltip: 'View details',
-                        onPressed: () => _viewBooking(context, id, d),
-                        icon: const Icon(Icons.visibility),
-                      ),
-                      Chip(label: Text(status)),
-                      const SizedBox(width: 8),
-                      IconButton(
-                        onPressed: status == 'approved'
-                            ? null
-                            : () => _setStatus(id, 'approved'),
-                        icon: const Icon(Icons.check, color: Colors.green),
-                      ),
-                      IconButton(
-                        onPressed: status == 'rejected'
-                            ? null
-                            : () => _setStatus(id, 'rejected'),
-                        icon: const Icon(Icons.close, color: Colors.red),
-                      ),
-                    ],
-                  ),
-                ),
+                );
+              }
+              if (!snapshot.hasData) {
+                return const Center(child: CircularProgressIndicator());
+              }
+              final docs = snapshot.data!.docs;
+              const listPadding = EdgeInsets.fromLTRB(24, 120, 24, 32);
+              if (docs.isEmpty) {
+                return ListView(
+                  padding: listPadding,
+                  children: const [
+                    _BookingReportPanel(),
+                    SizedBox(height: 24),
+                    _BookingsEmptyState(),
+                  ],
+                );
+              }
+              return ListView.separated(
+                padding: listPadding,
+                separatorBuilder: (context, index) =>
+                    const SizedBox(height: 18),
+                itemCount: docs.length + 1,
+                itemBuilder: (context, i) {
+                  if (i == 0) {
+                    return const _BookingReportPanel();
+                  }
+                  final doc = docs[i - 1];
+                  final data = doc.data() as Map<String, dynamic>;
+                  final id = doc.id;
+                  return _BookingAdminTile(
+                    data: data,
+                    onView: () => _viewBooking(context, id, data),
+                    onApprove: () => _setStatus(id, 'approved'),
+                    onReject: () => _setStatus(id, 'rejected'),
+                  );
+                },
               );
             },
-          );
-        },
+          ),
+        ),
       ),
     );
   }
@@ -1937,86 +3038,1357 @@ class BookingsAdminScreen extends StatelessWidget {
   }
 }
 
-class ComplaintsAdminScreen extends StatelessWidget {
-  const ComplaintsAdminScreen({super.key});
+class _BookingsEmptyState extends StatelessWidget {
+  const _BookingsEmptyState();
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Row(
-          children: [
-            _Logo(),
-            const SizedBox(width: 8),
-            const Text('Complaints'),
-          ],
-        ),
+    final theme = Theme.of(context);
+    final muted = theme.colorScheme.onSurfaceVariant;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8),
+      alignment: Alignment.topCenter,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.event_busy, size: 48, color: muted),
+          const SizedBox(height: 16),
+          Text(
+            'No bookings have been submitted yet.',
+            style: theme.textTheme.titleMedium,
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'As residents submit requests, they will appear here for review.',
+            textAlign: TextAlign.center,
+            style: theme.textTheme.bodyMedium?.copyWith(color: muted),
+          ),
+        ],
       ),
-      drawer: const _Nav(),
-      body: StreamBuilder<QuerySnapshot>(
-        stream: FirebaseFirestore.instance
-            .collection('complaints')
-            .orderBy('createdAt', descending: true)
-            .snapshots(),
-        builder: (context, snapshot) {
-          if (snapshot.hasError) {
-            return Center(child: Text('Error: ${snapshot.error}'));
-          }
-          if (!snapshot.hasData) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          final docs = snapshot.data!.docs;
-          return ListView.separated(
-            padding: const EdgeInsets.all(16),
-            separatorBuilder: (_, i) => const SizedBox(height: 8),
-            itemCount: docs.length,
-            itemBuilder: (_, i) {
-              final d = docs[i].data() as Map<String, dynamic>;
-              final id = docs[i].id;
-              final subject = (d['subject'] as String?) ?? '';
-              final details = (d['details'] as String?) ?? '';
-              final status = (d['status'] as String?) ?? 'open';
-              final type = (d['type'] as String?) ?? 'other';
-              final lampNo = (d['lampNumber']?.toString());
-              final title = type == 'street_lamp'
-                  ? 'Street Lamp${lampNo == null || lampNo.isEmpty ? '' : ' #$lampNo'}'
-                  : subject;
-              // createdAt is available but not currently displayed
-              return Card(
-                child: ListTile(
-                  title: Text(title),
-                  subtitle: details.isEmpty
-                      ? (type == 'street_lamp' && d['lat'] != null && d['lng'] != null
-                          ? Text('Location: (${d['lat']}, ${d['lng']})')
-                          : const SizedBox.shrink())
-                      : Text(details),
-                  leading: Icon(
-                    status == 'open' ? Icons.report : Icons.check_circle,
-                    color: status == 'open' ? Colors.orange : Colors.green,
+    );
+  }
+}
+
+class _BookingReportPanel extends StatefulWidget {
+  const _BookingReportPanel();
+
+  @override
+  State<_BookingReportPanel> createState() => _BookingReportPanelState();
+}
+
+class _BookingReportPanelState extends State<_BookingReportPanel> {
+  _ReportPeriod _period = _ReportPeriod.monthly;
+  _ReportType _type = _ReportType.ground;
+  DateTime _selectedMonth = DateTime(DateTime.now().year, DateTime.now().month);
+  int _selectedYear = DateTime.now().year;
+  bool _busy = false;
+  String? _error;
+  _ReportSummary? _summary;
+  List<_ReportBooking> _cachedBookings = const [];
+  String? _cachedKey;
+  bool _hasCache = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final monthLabel = DateFormat('MMMM yyyy').format(_selectedMonth);
+    final periodSegments = <ButtonSegment<_ReportPeriod>>[
+      const ButtonSegment(
+        value: _ReportPeriod.monthly,
+        label: Text('Monthly'),
+        icon: Icon(Icons.calendar_view_month),
+      ),
+      const ButtonSegment(
+        value: _ReportPeriod.yearly,
+        label: Text('Yearly'),
+        icon: Icon(Icons.calendar_today),
+      ),
+      const ButtonSegment(
+        value: _ReportPeriod.full,
+        label: Text('All time'),
+        icon: Icon(Icons.all_inbox_outlined),
+      ),
+    ];
+    final typeSegments = <ButtonSegment<_ReportType>>[
+      const ButtonSegment(
+        value: _ReportType.ground,
+        label: Text('Ground'),
+        icon: Icon(Icons.park_outlined),
+      ),
+      const ButtonSegment(
+        value: _ReportType.cemetery,
+        label: Text('Cemetery'),
+        icon: Icon(Icons.church_outlined),
+      ),
+      const ButtonSegment(
+        value: _ReportType.all,
+        label: Text('All'),
+        icon: Icon(Icons.layers_outlined),
+      ),
+    ];
+
+    return Container(
+      decoration: BoxDecoration(
+        color: colorScheme.surface,
+        borderRadius: BorderRadius.circular(28),
+        border: Border.all(color: colorScheme.primary.withValues(alpha: 0.08)),
+        boxShadow: [
+          BoxShadow(
+            color: colorScheme.primary.withValues(alpha: 0.08),
+            blurRadius: 24,
+            offset: const Offset(0, 14),
+          ),
+        ],
+      ),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(24, 24, 24, 20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: colorScheme.primary.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(18),
                   ),
-                  trailing: Row(
-                    mainAxisSize: MainAxisSize.min,
+                  child: Icon(
+                    Icons.assessment_outlined,
+                    color: colorScheme.primary,
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      IconButton(
-                        tooltip: 'View details',
-                        onPressed: () => _viewComplaint(context, id, d),
-                        icon: const Icon(Icons.visibility),
+                      Text(
+                        'Bookings reports',
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
                       ),
-                      Chip(label: Text(status)),
-                      const SizedBox(width: 8),
-                      ElevatedButton(
-                        onPressed: status == 'fixed'
-                            ? null
-                            : () => _setComplaintStatus(id, 'fixed'),
-                        child: const Text('Mark Fixed'),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Export monthly, yearly, or full-history reports with separate filters for ground and cemetery services.',
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: colorScheme.onSurfaceVariant,
+                        ),
                       ),
                     ],
                   ),
                 ),
-              );
-            },
-          );
+              ],
+            ),
+            const SizedBox(height: 20),
+            Wrap(
+              spacing: 16,
+              runSpacing: 16,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                SegmentedButton<_ReportPeriod>(
+                  segments: periodSegments,
+                  selected: <_ReportPeriod>{_period},
+                  onSelectionChanged: _busy
+                      ? null
+                      : (selection) {
+                          final next = selection.first;
+                          if (next == _period) return;
+                          setState(() {
+                            _period = next;
+                            _clearCachedData();
+                          });
+                        },
+                ),
+                if (_period == _ReportPeriod.monthly)
+                  OutlinedButton.icon(
+                    onPressed: _busy ? null : _pickMonth,
+                    icon: const Icon(Icons.calendar_month),
+                    label: Text(monthLabel),
+                  ),
+                if (_period == _ReportPeriod.yearly)
+                  InputDecorator(
+                    decoration: const InputDecoration(
+                      border: OutlineInputBorder(),
+                      contentPadding: EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 6,
+                      ),
+                      labelText: 'Select year',
+                    ),
+                    child: DropdownButtonHideUnderline(
+                      child: DropdownButton<int>(
+                        value: _selectedYear,
+                        onChanged: _busy
+                            ? null
+                            : (value) {
+                                if (value == null) return;
+                                setState(() {
+                                  _selectedYear = value;
+                                  _clearCachedData();
+                                });
+                              },
+                        items: _yearOptions()
+                            .map(
+                              (y) => DropdownMenuItem(
+                                value: y,
+                                child: Text(y.toString()),
+                              ),
+                            )
+                            .toList(),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            SegmentedButton<_ReportType>(
+              segments: typeSegments,
+              selected: <_ReportType>{_type},
+              onSelectionChanged: _busy
+                  ? null
+                  : (selection) {
+                      final next = selection.first;
+                      if (next == _type) return;
+                      setState(() {
+                        _type = next;
+                        _clearCachedData();
+                      });
+                    },
+            ),
+            if (_busy) ...[
+              const SizedBox(height: 16),
+              const LinearProgressIndicator(),
+            ],
+            const SizedBox(height: 16),
+            Wrap(
+              spacing: 12,
+              runSpacing: 12,
+              children: [
+                OutlinedButton.icon(
+                  onPressed: _busy ? null : _previewReport,
+                  icon: const Icon(Icons.bar_chart_outlined),
+                  label: const Text('Preview report'),
+                ),
+                FilledButton.icon(
+                  onPressed: _busy ? null : _downloadPdf,
+                  icon: const Icon(Icons.picture_as_pdf_outlined),
+                  label: const Text('Download PDF'),
+                ),
+              ],
+            ),
+            if (_error != null) ...[
+              const SizedBox(height: 12),
+              Text(
+                _error!,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: colorScheme.error,
+                ),
+              ),
+            ],
+            if (_summary != null) ...[
+              const SizedBox(height: 20),
+              Wrap(
+                spacing: 10,
+                runSpacing: 10,
+                children: [
+                  _SummaryChip(
+                    icon: Icons.calendar_month,
+                    label: _summary!.rangeLabel,
+                    color: colorScheme.primary,
+                  ),
+                  _SummaryChip(
+                    icon: Icons.category_outlined,
+                    label: _summary!.typeLabel,
+                    color: colorScheme.secondary,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 12,
+                runSpacing: 12,
+                children: [
+                  _SummaryStatCard(
+                    label: 'Total bookings',
+                    value: _summary!.total.toString(),
+                    color: colorScheme.primary,
+                    icon: Icons.event_note_outlined,
+                  ),
+                  _SummaryStatCard(
+                    label: 'Approved',
+                    value: _summary!.approved.toString(),
+                    color: colorScheme.tertiary,
+                    icon: Icons.check_circle_outline,
+                  ),
+                  _SummaryStatCard(
+                    label: 'Pending',
+                    value: _summary!.pending.toString(),
+                    color: colorScheme.secondary,
+                    icon: Icons.hourglass_bottom_outlined,
+                  ),
+                  _SummaryStatCard(
+                    label: 'Rejected',
+                    value: _summary!.rejected.toString(),
+                    color: colorScheme.error,
+                    icon: Icons.cancel_outlined,
+                  ),
+                ],
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _previewReport() async {
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      final bookings = await _getBookings();
+      if (!mounted) return;
+      final summary = _buildSummary(bookings);
+      setState(() {
+        _summary = summary;
+      });
+      if (bookings.isEmpty) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('No bookings found for the selected filters.'),
+          ),
+        );
+      }
+    } catch (e, stack) {
+      debugPrint('Failed to load booking report: $e\n$stack');
+      if (mounted) {
+        setState(() {
+          _error = 'Failed to load report. Please try again.';
+          _summary = null;
+        });
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _busy = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _downloadPdf() async {
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      final bookings = await _getBookings();
+      if (!mounted) return;
+      final summary = _buildSummary(bookings);
+      setState(() {
+        _summary = summary;
+      });
+      if (bookings.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('No bookings found for the selected filters.'),
+          ),
+        );
+        return;
+      }
+      final fileName = _buildFileName();
+      await Printing.layoutPdf(
+        name: fileName,
+        format: PdfPageFormat.a4,
+        onLayout: (format) async => _buildPdf(bookings, summary),
+      );
+    } catch (e, stack) {
+      debugPrint('Failed to export booking PDF: $e\n$stack');
+      if (mounted) {
+        setState(() {
+          _error = 'Failed to generate PDF. Please try again.';
+        });
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _busy = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _pickMonth() async {
+    final now = DateTime.now();
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _selectedMonth,
+      firstDate: DateTime(now.year - 5, 1),
+      lastDate: DateTime(now.year + 5, 12),
+      helpText: 'Select month',
+    );
+    if (picked != null) {
+      setState(() {
+        _selectedMonth = DateTime(picked.year, picked.month);
+        _clearCachedData();
+      });
+    }
+  }
+
+  Future<List<_ReportBooking>> _getBookings() async {
+    final cacheKey = _currentCacheKey();
+    if (_hasCache && _cachedKey == cacheKey) {
+      return _cachedBookings;
+    }
+
+    Query<Map<String, dynamic>> query = FirebaseFirestore.instance.collection(
+      'bookings',
+    );
+    final (start, end) = _rangeBounds();
+
+    if (_type != _ReportType.all) {
+      final typeValue = _type == _ReportType.ground ? 'ground' : 'cemetery';
+      query = query.where('bookingType', isEqualTo: typeValue);
+    }
+    if (start != null) {
+      query = query.where(
+        'bookingDate',
+        isGreaterThanOrEqualTo: Timestamp.fromDate(start),
+      );
+    }
+    if (end != null) {
+      query = query.where('bookingDate', isLessThan: Timestamp.fromDate(end));
+    }
+    query = query.orderBy('bookingDate');
+
+    final snapshot = await query.get();
+    final bookings = snapshot.docs
+        .map((doc) => _ReportBooking.fromFirestore(doc.id, doc.data()))
+        .toList();
+    _cachedBookings = bookings;
+    _cachedKey = cacheKey;
+    _hasCache = true;
+    return bookings;
+  }
+
+  _ReportSummary _buildSummary(List<_ReportBooking> bookings) {
+    final rangeLabel = _rangeLabel();
+    final typeLabel = _typeLabel();
+    var approved = 0;
+    var pending = 0;
+    var rejected = 0;
+    for (final booking in bookings) {
+      final status = booking.status.toLowerCase();
+      if (status == 'approved') {
+        approved++;
+      } else if (status == 'rejected') {
+        rejected++;
+      } else {
+        pending++;
+      }
+    }
+    return _ReportSummary(
+      total: bookings.length,
+      approved: approved,
+      pending: pending,
+      rejected: rejected,
+      rangeLabel: rangeLabel,
+      typeLabel: typeLabel,
+      generatedAt: DateTime.now(),
+    );
+  }
+
+  (DateTime? start, DateTime? end) _rangeBounds() {
+    switch (_period) {
+      case _ReportPeriod.monthly:
+        final start = DateTime(_selectedMonth.year, _selectedMonth.month);
+        final end = DateTime(start.year, start.month + 1);
+        return (start, end);
+      case _ReportPeriod.yearly:
+        final start = DateTime(_selectedYear, 1);
+        final end = DateTime(_selectedYear + 1, 1);
+        return (start, end);
+      case _ReportPeriod.full:
+        return (null, null);
+    }
+  }
+
+  String _rangeLabel() {
+    switch (_period) {
+      case _ReportPeriod.monthly:
+        return DateFormat('MMMM yyyy').format(_selectedMonth);
+      case _ReportPeriod.yearly:
+        return 'Year $_selectedYear';
+      case _ReportPeriod.full:
+        return 'Full history';
+    }
+  }
+
+  String _typeLabel() {
+    switch (_type) {
+      case _ReportType.ground:
+        return 'Ground bookings';
+      case _ReportType.cemetery:
+        return 'Cemetery bookings';
+      case _ReportType.all:
+        return 'All booking types';
+    }
+  }
+
+  String _buildFileName() {
+    final typeSlug = switch (_type) {
+      _ReportType.ground => 'ground',
+      _ReportType.cemetery => 'cemetery',
+      _ReportType.all => 'all',
+    };
+    final rangeSlug = switch (_period) {
+      _ReportPeriod.monthly =>
+        '${_selectedMonth.year}_${_selectedMonth.month.toString().padLeft(2, '0')}',
+      _ReportPeriod.yearly => _selectedYear.toString(),
+      _ReportPeriod.full => 'full-history',
+    };
+    return 'ups_bookings_${typeSlug}_$rangeSlug.pdf';
+  }
+
+  Future<Uint8List> _buildPdf(
+    List<_ReportBooking> bookings,
+    _ReportSummary summary,
+  ) async {
+    final pdf = pw.Document();
+    final detailsTableData = bookings.map((booking) {
+      return [
+        _formatDate(booking.bookingDate),
+        _titleCase(booking.type),
+        booking.status.toUpperCase(),
+        booking.visitorName.isNotEmpty ? booking.visitorName : '--',
+        _truncate(booking.reason.isNotEmpty ? booking.reason : booking.notes),
+      ];
+    }).toList();
+
+    pdf.addPage(
+      pw.MultiPage(
+        pageFormat: PdfPageFormat.a4,
+        margin: const pw.EdgeInsets.all(32),
+        build: (context) {
+          return [
+            pw.Column(
+              crossAxisAlignment: pw.CrossAxisAlignment.start,
+              children: [
+                pw.Text(
+                  'UPS Bookings Report',
+                  style: pw.TextStyle(
+                    fontSize: 20,
+                    fontWeight: pw.FontWeight.bold,
+                  ),
+                ),
+                pw.SizedBox(height: 4),
+                pw.Text(summary.rangeLabel),
+                pw.Text(summary.typeLabel),
+                pw.Text(
+                  'Generated ${DateFormat('d MMM y, h:mm a').format(summary.generatedAt)}',
+                  style: const pw.TextStyle(fontSize: 10),
+                ),
+                pw.SizedBox(height: 18),
+              ],
+            ),
+            pw.Table.fromTextArray(
+              headers: const ['Metric', 'Count'],
+              data: [
+                ['Total bookings', summary.total.toString()],
+                ['Approved', summary.approved.toString()],
+                ['Pending', summary.pending.toString()],
+                ['Rejected', summary.rejected.toString()],
+              ],
+              headerStyle: pw.TextStyle(
+                fontWeight: pw.FontWeight.bold,
+                color: PdfColor.fromInt(0xFF444444),
+              ),
+              cellStyle: const pw.TextStyle(fontSize: 11),
+              border: pw.TableBorder.all(color: PdfColor.fromInt(0xFFCCCCCC)),
+              headerDecoration: const pw.BoxDecoration(
+                color: PdfColor.fromInt(0xFFECEFF1),
+              ),
+            ),
+            pw.SizedBox(height: 20),
+            if (detailsTableData.isEmpty)
+              pw.Text(
+                'No bookings matched the selected filters.',
+                style: const pw.TextStyle(fontSize: 12),
+              )
+            else ...[
+              pw.Text(
+                'Booking details',
+                style: pw.TextStyle(
+                  fontSize: 14,
+                  fontWeight: pw.FontWeight.bold,
+                ),
+              ),
+              pw.SizedBox(height: 8),
+              pw.Table.fromTextArray(
+                headers: const ['Date', 'Type', 'Status', 'Visitor', 'Notes'],
+                data: detailsTableData,
+                cellStyle: const pw.TextStyle(fontSize: 10),
+                headerStyle: pw.TextStyle(
+                  fontWeight: pw.FontWeight.bold,
+                  color: PdfColor.fromInt(0xFF444444),
+                ),
+                headerDecoration: const pw.BoxDecoration(
+                  color: PdfColor.fromInt(0xFFE0E0E0),
+                ),
+                columnWidths: const {
+                  0: pw.FlexColumnWidth(1.1),
+                  1: pw.FlexColumnWidth(1.1),
+                  2: pw.FlexColumnWidth(1),
+                  3: pw.FlexColumnWidth(1.2),
+                  4: pw.FlexColumnWidth(2.6),
+                },
+                border: pw.TableBorder.all(color: PdfColor.fromInt(0xFFCCCCCC)),
+              ),
+            ],
+          ];
         },
+      ),
+    );
+
+    return pdf.save();
+  }
+
+  void _clearCachedData() {
+    _summary = null;
+    _error = null;
+    _cachedBookings = const [];
+    _cachedKey = null;
+    _hasCache = false;
+  }
+
+  String _currentCacheKey() {
+    final buffer = StringBuffer()
+      ..write(_period.name)
+      ..write('|')
+      ..write(_type.name);
+    switch (_period) {
+      case _ReportPeriod.monthly:
+        buffer
+          ..write('|')
+          ..write(_selectedMonth.year)
+          ..write('-')
+          ..write(_selectedMonth.month);
+        break;
+      case _ReportPeriod.yearly:
+        buffer
+          ..write('|')
+          ..write(_selectedYear);
+        break;
+      case _ReportPeriod.full:
+        buffer.write('|all');
+        break;
+    }
+    return buffer.toString();
+  }
+
+  List<int> _yearOptions() {
+    final current = DateTime.now().year;
+    return List<int>.generate(9, (index) => current + 4 - index);
+  }
+
+  String _formatDate(DateTime? date) {
+    if (date == null) return '--';
+    return DateFormat('yyyy-MM-dd').format(date);
+  }
+
+  String _titleCase(String value) {
+    if (value.isEmpty) return value;
+    return value[0].toUpperCase() + value.substring(1);
+  }
+
+  String _truncate(String value, [int max = 120]) {
+    if (value.isEmpty) return '--';
+    if (value.length <= max) return value;
+    return '${value.substring(0, max - 3)}...';
+  }
+}
+
+enum _ReportPeriod { monthly, yearly, full }
+
+enum _ReportType { ground, cemetery, all }
+
+class _ReportSummary {
+  const _ReportSummary({
+    required this.total,
+    required this.approved,
+    required this.pending,
+    required this.rejected,
+    required this.rangeLabel,
+    required this.typeLabel,
+    required this.generatedAt,
+  });
+
+  final int total;
+  final int approved;
+  final int pending;
+  final int rejected;
+  final String rangeLabel;
+  final String typeLabel;
+  final DateTime generatedAt;
+}
+
+class _ReportBooking {
+  _ReportBooking({
+    required this.id,
+    required this.type,
+    required this.status,
+    required this.bookingDate,
+    required this.createdAt,
+    required this.visitorName,
+    required this.reason,
+    required this.notes,
+  });
+
+  final String id;
+  final String type;
+  final String status;
+  final DateTime? bookingDate;
+  final DateTime? createdAt;
+  final String visitorName;
+  final String reason;
+  final String notes;
+
+  factory _ReportBooking.fromFirestore(String id, Map<String, dynamic> data) {
+    DateTime? toDate(dynamic value) {
+      if (value is Timestamp) return value.toDate();
+      if (value is DateTime) return value;
+      return null;
+    }
+
+    String sanitize(dynamic value) {
+      if (value == null) return '';
+      return value.toString().trim();
+    }
+
+    return _ReportBooking(
+      id: id,
+      type: sanitize(data['bookingType']).toLowerCase(),
+      status: sanitize(data['status']).isEmpty
+          ? 'pending'
+          : sanitize(data['status']).toLowerCase(),
+      bookingDate: toDate(data['bookingDate']),
+      createdAt: toDate(data['createdAt']),
+      visitorName: sanitize(data['visitorName']),
+      reason: sanitize(data['bookingReason']),
+      notes: sanitize(data['notes']),
+    );
+  }
+}
+
+class _SummaryStatCard extends StatelessWidget {
+  const _SummaryStatCard({
+    required this.label,
+    required this.value,
+    required this.color,
+    required this.icon,
+  });
+
+  final String label;
+  final String value;
+  final Color color;
+  final IconData icon;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      width: 180,
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: color.withValues(alpha: 0.18)),
+      ),
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          CircleAvatar(
+            radius: 18,
+            backgroundColor: color.withValues(alpha: 0.16),
+            child: Icon(icon, color: color, size: 18),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            value,
+            style: theme.textTheme.titleLarge?.copyWith(
+              fontWeight: FontWeight.w700,
+              color: color,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            label,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SummaryChip extends StatelessWidget {
+  const _SummaryChip({
+    required this.icon,
+    required this.label,
+    required this.color,
+  });
+
+  final IconData icon;
+  final String label;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Chip(
+      avatar: Icon(icon, size: 16, color: color),
+      label: Text(label),
+      side: BorderSide(color: color.withValues(alpha: 0.3)),
+      backgroundColor: color.withValues(alpha: 0.1),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+    );
+  }
+}
+
+class _BookingAdminTile extends StatelessWidget {
+  const _BookingAdminTile({
+    required this.data,
+    required this.onView,
+    required this.onApprove,
+    required this.onReject,
+  });
+
+  final Map<String, dynamic> data;
+  final VoidCallback onView;
+  final VoidCallback onApprove;
+  final VoidCallback onReject;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final status = (data['status'] ?? 'pending').toString();
+    final type = (data['bookingType'] ?? 'Booking').toString();
+    final bookingDate = (data['bookingDate'] as Timestamp?)?.toDate();
+    final formattedDate = _formatDate(bookingDate);
+    final createdAt = (data['createdAt'] as Timestamp?)?.toDate();
+    final assignedUser = (data['userId'] ?? data['memberEmail'] ?? 'Unassigned')
+        .toString();
+    final contact = (data['visitorPhone'] ?? data['phone'] ?? '').toString();
+    final reason = (data['bookingReason'] ?? data['notes'] ?? '')
+        .toString()
+        .trim();
+    final slot =
+        (data['timeSlot'] ?? data['slot'] ?? data['preferredTime'] ?? '')
+            .toString();
+    final location = (data['location'] ?? data['address'] ?? '').toString();
+
+    final isApproved = status.toLowerCase() == 'approved';
+    final isRejected = status.toLowerCase() == 'rejected';
+
+    return Container(
+      decoration: BoxDecoration(
+        color: scheme.surface,
+        borderRadius: BorderRadius.circular(28),
+        border: Border.all(color: scheme.primary.withValues(alpha: 0.08)),
+        boxShadow: [
+          BoxShadow(
+            color: scheme.primary.withValues(alpha: 0.08),
+            blurRadius: 24,
+            offset: const Offset(0, 14),
+          ),
+        ],
+      ),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(24, 24, 24, 20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: scheme.primary.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(18),
+                  ),
+                  child: const Icon(
+                    Icons.event_available_rounded,
+                    color: Colors.white,
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        type,
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Scheduled for $formattedDate',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: scheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                _StatusBadge(
+                  label: status.toUpperCase(),
+                  color: _bookingStatusColor(context, status),
+                ),
+              ],
+            ),
+            const SizedBox(height: 18),
+            Wrap(
+              spacing: 12,
+              runSpacing: 12,
+              children: [
+                _InfoPill(icon: Icons.person_outline, label: assignedUser),
+                if (slot.isNotEmpty)
+                  _InfoPill(icon: Icons.access_time, label: slot),
+                if (location.isNotEmpty)
+                  _InfoPill(icon: Icons.place_outlined, label: location),
+                _InfoPill(
+                  icon: Icons.schedule,
+                  label: 'Logged ${_relativeTime(createdAt)}',
+                ),
+              ],
+            ),
+            if (reason.isNotEmpty) ...[
+              const SizedBox(height: 16),
+              Text(
+                reason,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: scheme.onSurfaceVariant,
+                  height: 1.45,
+                ),
+              ),
+            ],
+            if (contact.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              Text(
+                'Contact: $contact',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: scheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+            const SizedBox(height: 20),
+            Row(
+              children: [
+                TextButton.icon(
+                  onPressed: onView,
+                  icon: const Icon(Icons.visibility_outlined),
+                  label: const Text('Details'),
+                ),
+                const Spacer(),
+                OutlinedButton.icon(
+                  onPressed: isRejected ? null : onReject,
+                  icon: const Icon(Icons.close_rounded),
+                  label: const Text('Reject'),
+                ),
+                const SizedBox(width: 12),
+                FilledButton.icon(
+                  onPressed: isApproved ? null : onApprove,
+                  icon: const Icon(Icons.check_rounded),
+                  label: const Text('Approve'),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _formatDate(DateTime? date) {
+    if (date == null) return 'date pending';
+    return '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+  }
+
+  String _relativeTime(DateTime? dt) {
+    if (dt == null) return 'just now';
+    final diff = DateTime.now().difference(dt);
+    if (diff.inMinutes < 1) return 'just now';
+    if (diff.inMinutes < 60) return '${diff.inMinutes} min ago';
+    if (diff.inHours < 24) return '${diff.inHours} h ago';
+    return '${diff.inDays} d ago';
+  }
+}
+
+class ComplaintsAdminScreen extends StatefulWidget {
+  const ComplaintsAdminScreen({super.key});
+
+  @override
+  State<ComplaintsAdminScreen> createState() => _ComplaintsAdminScreenState();
+}
+
+class _ComplaintsAdminScreenState extends State<ComplaintsAdminScreen> {
+  final _searchCtrl = TextEditingController();
+  String _query = '';
+  String _statusFilter = 'all';
+
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
+  }
+
+  bool _matchesStatus(String status) {
+    final value = status.toLowerCase();
+    switch (_statusFilter) {
+      case 'open':
+        return value == 'open' || value == 'pending' || value == 'new';
+      case 'progress':
+        return value.contains('progress') || value == 'assigned';
+      case 'resolved':
+        return value == 'fixed' || value == 'resolved' || value == 'closed';
+      default:
+        return true;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    return _AdminScaffold(
+      title: 'Complaints queue',
+      extendBodyBehindAppBar: false,
+      body: _AdminGradientBackground(
+        child: SafeArea(
+          top: false,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(24, 120, 24, 24),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Container(
+                  decoration: BoxDecoration(
+                    color: colorScheme.surface,
+                    borderRadius: BorderRadius.circular(28),
+                    border: Border.all(
+                      color: colorScheme.primary.withValues(alpha: 0.08),
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: colorScheme.primary.withValues(alpha: 0.08),
+                        blurRadius: 24,
+                        offset: const Offset(0, 14),
+                      ),
+                    ],
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.all(28),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: colorScheme.primary.withValues(alpha: 0.12),
+                            borderRadius: BorderRadius.circular(18),
+                          ),
+                          child: Icon(
+                            Icons.support_agent_rounded,
+                            color: colorScheme.primary,
+                          ),
+                        ),
+                        const SizedBox(width: 20),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Manage community issues',
+                                style: theme.textTheme.titleLarge?.copyWith(
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                              const SizedBox(height: 6),
+                              Text(
+                                'Track reports as they move from open to resolved, and keep residents informed.',
+                                style: theme.textTheme.bodyMedium?.copyWith(
+                                  color: colorScheme.onSurfaceVariant,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 24),
+                Expanded(
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: colorScheme.surface,
+                      borderRadius: BorderRadius.circular(28),
+                      border: Border.all(
+                        color: colorScheme.primary.withValues(alpha: 0.06),
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: colorScheme.primary.withValues(alpha: 0.06),
+                          blurRadius: 20,
+                          offset: const Offset(0, 12),
+                        ),
+                      ],
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(24, 24, 24, 16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Text(
+                            'Live complaints queue',
+                            style: theme.textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            'Filter by status or search by subject, location, or reporter.',
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              color: colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                          const SizedBox(height: 18),
+                          SingleChildScrollView(
+                            scrollDirection: Axis.horizontal,
+                            padding: const EdgeInsets.only(bottom: 4),
+                            child: Row(
+                              children: [
+                                _buildFilterChip('all', 'All'),
+                                const SizedBox(width: 8),
+                                _buildFilterChip('open', 'Open'),
+                                const SizedBox(width: 8),
+                                _buildFilterChip('progress', 'In progress'),
+                                const SizedBox(width: 8),
+                                _buildFilterChip('resolved', 'Resolved'),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                          TextField(
+                            controller: _searchCtrl,
+                            onChanged: (value) => setState(
+                              () => _query = value.trim().toLowerCase(),
+                            ),
+                            decoration: InputDecoration(
+                              labelText: 'Search by keyword or reporter',
+                              prefixIcon: const Icon(Icons.search_rounded),
+                              suffixIcon: _query.isNotEmpty
+                                  ? IconButton(
+                                      onPressed: () {
+                                        _searchCtrl.clear();
+                                        setState(() => _query = '');
+                                      },
+                                      icon: const Icon(Icons.clear_rounded),
+                                    )
+                                  : null,
+                            ),
+                          ),
+                          const SizedBox(height: 20),
+                          Expanded(
+                            child: StreamBuilder<QuerySnapshot>(
+                              stream: FirebaseFirestore.instance
+                                  .collection('complaints')
+                                  .orderBy('createdAt', descending: true)
+                                  .snapshots(),
+                              builder: (context, snapshot) {
+                                if (snapshot.connectionState ==
+                                    ConnectionState.waiting) {
+                                  return const Center(
+                                    child: CircularProgressIndicator(),
+                                  );
+                                }
+                                if (snapshot.hasError) {
+                                  return Center(
+                                    child: Text(
+                                      'Unable to load complaints.',
+                                      style: theme.textTheme.bodyMedium
+                                          ?.copyWith(color: colorScheme.error),
+                                    ),
+                                  );
+                                }
+                                if (!snapshot.hasData ||
+                                    snapshot.data!.docs.isEmpty) {
+                                  return Center(
+                                    child: Text(
+                                      'No complaints registered yet.',
+                                      style: theme.textTheme.bodyMedium
+                                          ?.copyWith(
+                                            color: colorScheme.onSurfaceVariant,
+                                          ),
+                                    ),
+                                  );
+                                }
+                                final docs = snapshot.data!.docs;
+                                final openCount = docs.where((doc) {
+                                  final status = (doc['status'] ?? '')
+                                      .toString()
+                                      .toLowerCase();
+                                  return status == 'open' ||
+                                      status == 'pending' ||
+                                      status == 'new';
+                                }).length;
+                                final resolvedCount = docs.where((doc) {
+                                  final status = (doc['status'] ?? '')
+                                      .toString()
+                                      .toLowerCase();
+                                  return status == 'fixed' ||
+                                      status == 'resolved' ||
+                                      status == 'closed';
+                                }).length;
+                                final query = _query;
+                                final filteredDocs = docs.where((doc) {
+                                  final data =
+                                      (doc.data() ?? {})
+                                          as Map<String, dynamic>;
+                                  final status = (data['status'] ?? '')
+                                      .toString();
+                                  if (!_matchesStatus(status)) return false;
+                                  if (query.isEmpty) return true;
+                                  final subject =
+                                      (data['subject'] ?? data['title'] ?? '')
+                                          .toString()
+                                          .toLowerCase();
+                                  final reporter =
+                                      (data['name'] ??
+                                              data['reporterName'] ??
+                                              '')
+                                          .toString()
+                                          .toLowerCase();
+                                  final location =
+                                      (data['location'] ??
+                                              data['address'] ??
+                                              '')
+                                          .toString()
+                                          .toLowerCase();
+                                  final details = (data['details'] ?? '')
+                                      .toString()
+                                      .toLowerCase();
+                                  return subject.contains(query) ||
+                                      reporter.contains(query) ||
+                                      location.contains(query) ||
+                                      details.contains(query);
+                                }).toList();
+                                if (filteredDocs.isEmpty) {
+                                  return Center(
+                                    child: Text(
+                                      'No complaints match your filters.',
+                                      style: theme.textTheme.bodyMedium
+                                          ?.copyWith(
+                                            color: colorScheme.onSurfaceVariant,
+                                          ),
+                                    ),
+                                  );
+                                }
+                                return Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.stretch,
+                                  children: [
+                                    Wrap(
+                                      spacing: 12,
+                                      runSpacing: 12,
+                                      children: [
+                                        _InfoPill(
+                                          icon: Icons.warning_amber_rounded,
+                                          label: '$openCount open',
+                                        ),
+                                        _InfoPill(
+                                          icon: Icons.verified_rounded,
+                                          label: '$resolvedCount resolved',
+                                        ),
+                                        _InfoPill(
+                                          icon: Icons.list_alt_rounded,
+                                          label: '${filteredDocs.length} shown',
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 16),
+                                    Expanded(
+                                      child: ListView.separated(
+                                        itemCount: filteredDocs.length,
+                                        separatorBuilder: (context, _) =>
+                                            const SizedBox(height: 16),
+                                        itemBuilder: (context, index) {
+                                          final doc = filteredDocs[index];
+                                          final data =
+                                              (doc.data() ?? {})
+                                                  as Map<String, dynamic>;
+                                          final id = doc.id;
+                                          return _ComplaintAdminTile(
+                                            data: data,
+                                            onView: () => _viewComplaint(
+                                              context,
+                                              id,
+                                              data,
+                                            ),
+                                            onMarkFixed: () =>
+                                                _setComplaintStatus(
+                                                  id,
+                                                  'fixed',
+                                                ),
+                                          );
+                                        },
+                                      ),
+                                    ),
+                                  ],
+                                );
+                              },
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFilterChip(String value, String label) {
+    final theme = Theme.of(context);
+    final selected = _statusFilter == value;
+    return ChoiceChip(
+      label: Text(label),
+      selected: selected,
+      onSelected: (v) {
+        if (!v) return;
+        setState(() => _statusFilter = value);
+      },
+      selectedColor: theme.colorScheme.primary.withValues(alpha: 0.18),
+      labelStyle: theme.textTheme.labelLarge?.copyWith(
+        color: selected
+            ? theme.colorScheme.primary
+            : theme.colorScheme.onSurfaceVariant,
       ),
     );
   }
@@ -2037,7 +4409,9 @@ class ComplaintsAdminScreen extends StatelessWidget {
     Map<String, dynamic> data,
   ) async {
     String fmtDate(dynamic ts) {
-      if (ts is Timestamp) return ts.toDate().toLocal().toString().split(' ')[0];
+      if (ts is Timestamp) {
+        return ts.toDate().toLocal().toString().split(' ')[0];
+      }
       if (ts is DateTime) return ts.toLocal().toString().split(' ')[0];
       return ts?.toString() ?? '';
     }
@@ -2072,18 +4446,29 @@ class ComplaintsAdminScreen extends StatelessWidget {
                   children: [
                     Chip(label: Text('Type: $type')),
                     Chip(label: Text('Status: $status')),
-                    if (createdAt.isNotEmpty) Chip(label: Text('Created: $createdAt')),
+                    if (createdAt.isNotEmpty)
+                      Chip(label: Text('Created: $createdAt')),
                   ],
                 ),
                 const SizedBox(height: 8),
                 if (details.isNotEmpty) ...[
-                  Text('Details', style: Theme.of(c).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600)),
+                  Text(
+                    'Details',
+                    style: Theme.of(c).textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
                   const SizedBox(height: 4),
                   SelectableText(details),
                   const SizedBox(height: 12),
                 ],
                 if (type == 'street_lamp' && lat != null && lng != null) ...[
-                  Text('Location', style: Theme.of(c).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600)),
+                  Text(
+                    'Location',
+                    style: Theme.of(c).textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
                   const SizedBox(height: 4),
                   SizedBox(
                     height: 220,
@@ -2094,7 +4479,8 @@ class ComplaintsAdminScreen extends StatelessWidget {
                       ),
                       children: [
                         TileLayer(
-                          urlTemplate: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+                          urlTemplate:
+                              'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
                           subdomains: const ['a', 'b', 'c'],
                           userAgentPackageName: 'lk.gov.ups.admin',
                           tileProvider: NetworkTileProvider(),
@@ -2105,7 +4491,11 @@ class ComplaintsAdminScreen extends StatelessWidget {
                               width: 40,
                               height: 40,
                               point: ll.LatLng(lat, lng),
-                              child: const Icon(Icons.location_on, color: Colors.red, size: 36),
+                              child: const Icon(
+                                Icons.location_on,
+                                color: Colors.red,
+                                size: 36,
+                              ),
                             ),
                           ],
                         ),
@@ -2115,16 +4505,28 @@ class ComplaintsAdminScreen extends StatelessWidget {
                   const SizedBox(height: 12),
                 ],
                 if (photoUrl != null) ...[
-                  Text('Photo', style: Theme.of(c).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600)),
+                  Text(
+                    'Photo',
+                    style: Theme.of(c).textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
                   const SizedBox(height: 4),
                   GestureDetector(
                     onTap: () async {
                       final uri = Uri.parse(photoUrl);
-                      await url_launcher.launchUrl(uri, mode: url_launcher.LaunchMode.externalApplication);
+                      await url_launcher.launchUrl(
+                        uri,
+                        mode: url_launcher.LaunchMode.externalApplication,
+                      );
                     },
                     child: ClipRRect(
                       borderRadius: BorderRadius.circular(8),
-                      child: Image.network(photoUrl, height: 160, fit: BoxFit.cover),
+                      child: Image.network(
+                        photoUrl,
+                        height: 160,
+                        fit: BoxFit.cover,
+                      ),
                     ),
                   ),
                 ],
@@ -2149,6 +4551,171 @@ class ComplaintsAdminScreen extends StatelessWidget {
         ],
       ),
     );
+  }
+}
+
+class _ComplaintAdminTile extends StatelessWidget {
+  const _ComplaintAdminTile({
+    required this.data,
+    required this.onView,
+    required this.onMarkFixed,
+  });
+
+  final Map<String, dynamic> data;
+  final VoidCallback onView;
+  final VoidCallback onMarkFixed;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final status = (data['status'] ?? 'open').toString();
+    final type = (data['type'] ?? 'general').toString();
+    final subject = (data['subject'] ?? 'Complaint').toString();
+    final lampNo = data['lampNumber']?.toString();
+    final title = type == 'street_lamp'
+        ? 'Street lamp${lampNo == null || lampNo.isEmpty ? '' : ' #$lampNo'}'
+        : subject;
+    final details = (data['details'] ?? '').toString().trim();
+    final createdAt = (data['createdAt'] as Timestamp?)?.toDate();
+    final reporter = (data['name'] ?? data['reporterName'] ?? 'Resident')
+        .toString();
+    final contact = (data['phone'] ?? data['contact'] ?? '').toString();
+    final location = (data['location'] ?? data['address'] ?? '').toString();
+    final lat = (data['lat'] as num?)?.toDouble();
+    final lng = (data['lng'] as num?)?.toDouble();
+
+    final statusColor = _complaintStatusColor(context, status);
+    final resolved =
+        status.toLowerCase() == 'fixed' || status.toLowerCase() == 'resolved';
+
+    return Container(
+      decoration: BoxDecoration(
+        color: scheme.surface,
+        borderRadius: BorderRadius.circular(28),
+        border: Border.all(color: scheme.primary.withValues(alpha: 0.08)),
+        boxShadow: [
+          BoxShadow(
+            color: scheme.primary.withValues(alpha: 0.08),
+            blurRadius: 24,
+            offset: const Offset(0, 14),
+          ),
+        ],
+      ),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(24, 24, 24, 20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: statusColor.withValues(alpha: 0.14),
+                    borderRadius: BorderRadius.circular(18),
+                  ),
+                  child: Icon(
+                    resolved
+                        ? Icons.verified_user_rounded
+                        : Icons.support_agent_rounded,
+                    color: statusColor,
+                    size: 24,
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Reported by $reporter',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: scheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                _StatusBadge(label: status.toUpperCase(), color: statusColor),
+              ],
+            ),
+            const SizedBox(height: 18),
+            Wrap(
+              spacing: 12,
+              runSpacing: 12,
+              children: [
+                _InfoPill(icon: Icons.category_outlined, label: type),
+                if (createdAt != null)
+                  _InfoPill(
+                    icon: Icons.schedule,
+                    label: _relativeTime(createdAt),
+                  ),
+                if (location.isNotEmpty)
+                  _InfoPill(icon: Icons.place_outlined, label: location),
+                if (lat != null && lng != null)
+                  _InfoPill(
+                    icon: Icons.map_outlined,
+                    label:
+                        'Lat ${lat.toStringAsFixed(3)}, Lng ${lng.toStringAsFixed(3)}',
+                  ),
+              ],
+            ),
+            if (details.isNotEmpty) ...[
+              const SizedBox(height: 16),
+              Text(
+                details,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: scheme.onSurfaceVariant,
+                  height: 1.45,
+                ),
+              ),
+            ],
+            if (contact.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              Text(
+                'Contact: $contact',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: scheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+            const SizedBox(height: 20),
+            Row(
+              children: [
+                TextButton.icon(
+                  onPressed: onView,
+                  icon: const Icon(Icons.visibility_outlined),
+                  label: const Text('Details'),
+                ),
+                const Spacer(),
+                FilledButton.icon(
+                  onPressed: resolved ? null : onMarkFixed,
+                  icon: const Icon(Icons.verified_outlined),
+                  label: const Text('Mark fixed'),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _relativeTime(DateTime? dt) {
+    if (dt == null) return '—';
+    final diff = DateTime.now().difference(dt);
+    if (diff.inMinutes < 1) return 'just now';
+    if (diff.inMinutes < 60) return '${diff.inMinutes} min ago';
+    if (diff.inHours < 24) return '${diff.inHours} h ago';
+    return '${diff.inDays} d ago';
   }
 }
 
@@ -2236,36 +4803,107 @@ class _NewsAdminScreenState extends State<NewsAdminScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Row(
-          children: [_Logo(), const SizedBox(width: 8), const Text('News')],
+    return _AdminScaffold(
+      title: 'News & announcements',
+      extendBodyBehindAppBar: false,
+      body: _AdminGradientBackground(
+        child: SafeArea(
+          top: false,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(24, 120, 24, 24),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _buildComposer(context),
+                const SizedBox(height: 24),
+                Expanded(child: _buildNewsList(context)),
+              ],
+            ),
+          ),
         ),
       ),
-      drawer: const _Nav(),
-      body: Padding(
-        padding: const EdgeInsets.all(16),
+    );
+  }
+
+  Widget _buildComposer(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Container(
+      decoration: BoxDecoration(
+        color: scheme.surface,
+        borderRadius: BorderRadius.circular(28),
+        border: Border.all(color: scheme.primary.withValues(alpha: 0.08)),
+        boxShadow: [
+          BoxShadow(
+            color: scheme.primary.withValues(alpha: 0.08),
+            blurRadius: 24,
+            offset: const Offset(0, 14),
+          ),
+        ],
+      ),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(24, 24, 24, 24),
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: scheme.primary.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(18),
+                  ),
+                  child: Icon(Icons.campaign_rounded, color: scheme.primary),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Publish a new update',
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Share municipal news, tenders, or emergency alerts with residents.',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: scheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 24),
             TextField(
               controller: _title,
-              decoration: const InputDecoration(labelText: 'Title'),
+              decoration: const InputDecoration(
+                labelText: 'Headline',
+                prefixIcon: Icon(Icons.title_rounded),
+              ),
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 12),
             TextField(
               controller: _summary,
               minLines: 3,
-              maxLines: 5,
-              decoration: const InputDecoration(labelText: 'Summary'),
+              maxLines: 6,
+              decoration: const InputDecoration(
+                labelText: 'Summary',
+                alignLabelWithHint: true,
+              ),
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 16),
             Wrap(
-              spacing: 8,
-              runSpacing: 8,
+              spacing: 12,
+              runSpacing: 12,
               crossAxisAlignment: WrapCrossAlignment.center,
               children: [
-                ElevatedButton.icon(
+                OutlinedButton.icon(
                   onPressed: _posting
                       ? null
                       : () async {
@@ -2279,10 +4917,14 @@ class _NewsAdminScreenState extends State<NewsAdminScreen> {
                             setState(() => _images = res.files);
                           }
                         },
-                  icon: const Icon(Icons.image),
-                  label: Text('Images (${_images.length})'),
+                  icon: const Icon(Icons.image_outlined),
+                  label: Text(
+                    _images.isEmpty
+                        ? 'Attach images'
+                        : 'Images (${_images.length})',
+                  ),
                 ),
-                ElevatedButton.icon(
+                OutlinedButton.icon(
                   onPressed: _posting
                       ? null
                       : () async {
@@ -2296,15 +4938,85 @@ class _NewsAdminScreenState extends State<NewsAdminScreen> {
                             setState(() => _pdf = res.files.first);
                           }
                         },
-                  icon: const Icon(Icons.picture_as_pdf),
+                  icon: const Icon(Icons.picture_as_pdf_outlined),
                   label: Text(_pdf?.name ?? 'Attach PDF'),
                 ),
               ],
             ),
-            const SizedBox(height: 12),
-            ElevatedButton(
-              onPressed: _posting ? null : _post,
-              child: Text(_posting ? 'Posting...' : 'Post News'),
+            if (_images.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 12),
+                child: Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    for (final file in _images)
+                      Chip(
+                        label: Text(file.name),
+                        onDeleted: _posting
+                            ? null
+                            : () => setState(() => _images.remove(file)),
+                      ),
+                  ],
+                ),
+              ),
+            if (_pdf != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 12),
+                child: Chip(
+                  label: Text(_pdf!.name),
+                  onDeleted: _posting
+                      ? null
+                      : () => setState(() => _pdf = null),
+                ),
+              ),
+            const SizedBox(height: 20),
+            Align(
+              alignment: Alignment.centerRight,
+              child: FilledButton.icon(
+                onPressed: _posting ? null : _post,
+                icon: _posting
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.send_rounded),
+                label: Text(_posting ? 'Posting...' : 'Post update'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildNewsList(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Container(
+      decoration: BoxDecoration(
+        color: scheme.surface,
+        borderRadius: BorderRadius.circular(28),
+        border: Border.all(color: scheme.primary.withValues(alpha: 0.06)),
+        boxShadow: [
+          BoxShadow(
+            color: scheme.primary.withValues(alpha: 0.06),
+            blurRadius: 20,
+            offset: const Offset(0, 12),
+          ),
+        ],
+      ),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(24, 24, 24, 16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Published posts',
+              style: theme.textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w700,
+              ),
             ),
             const SizedBox(height: 16),
             Expanded(
@@ -2314,25 +5026,28 @@ class _NewsAdminScreenState extends State<NewsAdminScreen> {
                     .orderBy('publishedAt', descending: true)
                     .snapshots(),
                 builder: (context, snapshot) {
-                  if (!snapshot.hasData) {
+                  if (snapshot.connectionState == ConnectionState.waiting) {
                     return const Center(child: CircularProgressIndicator());
+                  }
+                  if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+                    return Center(
+                      child: Text(
+                        'No news posts yet. Publish the first update above.',
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: scheme.onSurfaceVariant,
+                        ),
+                      ),
+                    );
                   }
                   final docs = snapshot.data!.docs;
                   return ListView.separated(
                     itemCount: docs.length,
-                    separatorBuilder: (_, i) => const SizedBox(height: 8),
-                    itemBuilder: (_, i) {
-                      final d = docs[i].data() as Map<String, dynamic>;
-                      final id = docs[i].id;
-                      return ListTile(
-                        title: Text(d['title'] ?? ''),
-                        subtitle: Text(d['summary'] ?? ''),
-                        trailing: TextButton(
-                          onPressed: () => context.go('/news/$id'),
-                          child: const Text('Read'),
-                        ),
-                        onTap: () => context.go('/news/$id'),
-                      );
+                    separatorBuilder: (context, _) =>
+                        const SizedBox(height: 12),
+                    itemBuilder: (context, index) {
+                      final data = docs[index].data() as Map<String, dynamic>;
+                      final id = docs[index].id;
+                      return _NewsListItem(id: id, data: data);
                     },
                   );
                 },
@@ -2446,55 +5161,259 @@ class NewsDetailScreen extends StatelessWidget {
   }
 }
 
-class UsersAdminScreen extends StatelessWidget {
+class UsersAdminScreen extends StatefulWidget {
   const UsersAdminScreen({super.key});
 
   @override
+  State<UsersAdminScreen> createState() => _UsersAdminScreenState();
+}
+
+class _UsersAdminScreenState extends State<UsersAdminScreen> {
+  final _searchCtrl = TextEditingController();
+  String _query = '';
+
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
+  }
+
+  bool _isAdmin(Map<String, dynamic> data) {
+    final adminFlag = data['admin'] == true;
+    final roles = data['roles'];
+    final roleAdmin = roles is Map && roles['admin'] == true;
+    return adminFlag || roleAdmin;
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Row(
-          children: [_Logo(), const SizedBox(width: 8), const Text('Users')],
-        ),
-      ),
-      drawer: const _Nav(),
-      body: StreamBuilder<QuerySnapshot>(
-        stream: FirebaseFirestore.instance
-            .collection('users')
-            .orderBy('createdAt', descending: true)
-            .snapshots(),
-        builder: (context, snapshot) {
-          if (snapshot.hasError) {
-            return Center(child: Text('Error: ${snapshot.error}'));
-          }
-          if (!snapshot.hasData) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          final docs = snapshot.data!.docs;
-          return ListView.separated(
-            padding: const EdgeInsets.all(16),
-            separatorBuilder: (_, i) => const SizedBox(height: 8),
-            itemCount: docs.length,
-            itemBuilder: (_, i) {
-              final d = docs[i].data() as Map<String, dynamic>;
-              final id = docs[i].id;
-              final name = (d['displayName'] ?? d['name'] ?? '') as String;
-              final email = (d['email'] ?? '') as String;
-              final phone = (d['phone'] ?? d['phoneNumber'] ?? '') as String;
-              return Card(
-                child: ListTile(
-                  title: Text(name.isEmpty ? email : name),
-                  subtitle: Text('Email: $email\nPhone: $phone'),
-                  isThreeLine: true,
-                  trailing: IconButton(
-                    onPressed: () => _editUser(context, id, d),
-                    icon: const Icon(Icons.edit),
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    return _AdminScaffold(
+      title: 'Resident registry',
+      extendBodyBehindAppBar: false,
+      body: _AdminGradientBackground(
+        child: SafeArea(
+          top: false,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(24, 120, 24, 24),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Container(
+                  decoration: BoxDecoration(
+                    color: colorScheme.surface,
+                    borderRadius: BorderRadius.circular(28),
+                    border: Border.all(
+                      color: colorScheme.primary.withValues(alpha: 0.08),
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: colorScheme.primary.withValues(alpha: 0.08),
+                        blurRadius: 24,
+                        offset: const Offset(0, 14),
+                      ),
+                    ],
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.all(28),
+                    child: Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: colorScheme.primary.withValues(alpha: 0.12),
+                            borderRadius: BorderRadius.circular(18),
+                          ),
+                          child: Icon(
+                            Icons.groups_rounded,
+                            color: colorScheme.primary,
+                          ),
+                        ),
+                        const SizedBox(width: 20),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Manage resident access',
+                                style: theme.textTheme.titleLarge?.copyWith(
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                              const SizedBox(height: 6),
+                              Text(
+                                'Review contact details, update phone numbers, and manage admin permissions.',
+                                style: theme.textTheme.bodyMedium?.copyWith(
+                                  color: colorScheme.onSurfaceVariant,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
-              );
-            },
-          );
-        },
+                const SizedBox(height: 24),
+                Expanded(
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: colorScheme.surface,
+                      borderRadius: BorderRadius.circular(28),
+                      border: Border.all(
+                        color: colorScheme.primary.withValues(alpha: 0.06),
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: colorScheme.primary.withValues(alpha: 0.06),
+                          blurRadius: 20,
+                          offset: const Offset(0, 12),
+                        ),
+                      ],
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(24, 24, 24, 16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Text(
+                            'All residents',
+                            style: theme.textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            'Search and edit resident profiles. Updates sync across the mobile experience immediately.',
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              color: colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                          const SizedBox(height: 18),
+                          TextField(
+                            controller: _searchCtrl,
+                            onChanged: (value) => setState(
+                              () => _query = value.trim().toLowerCase(),
+                            ),
+                            decoration: InputDecoration(
+                              labelText: 'Search by name, email, or phone',
+                              prefixIcon: const Icon(Icons.search_rounded),
+                              suffixIcon: _query.isNotEmpty
+                                  ? IconButton(
+                                      onPressed: () {
+                                        _searchCtrl.clear();
+                                        setState(() => _query = '');
+                                      },
+                                      icon: const Icon(Icons.clear_rounded),
+                                    )
+                                  : null,
+                            ),
+                          ),
+                          const SizedBox(height: 20),
+                          Expanded(
+                            child: StreamBuilder<QuerySnapshot>(
+                              stream: FirebaseFirestore.instance
+                                  .collection('users')
+                                  .orderBy('createdAt', descending: true)
+                                  .snapshots(),
+                              builder: (context, snapshot) {
+                                if (snapshot.connectionState ==
+                                    ConnectionState.waiting) {
+                                  return const Center(
+                                    child: CircularProgressIndicator(),
+                                  );
+                                }
+                                if (snapshot.hasError) {
+                                  return Center(
+                                    child: Text(
+                                      'Something went wrong loading users.',
+                                      style: theme.textTheme.bodyMedium
+                                          ?.copyWith(color: colorScheme.error),
+                                    ),
+                                  );
+                                }
+                                if (!snapshot.hasData ||
+                                    snapshot.data!.docs.isEmpty) {
+                                  return Center(
+                                    child: Text(
+                                      'No residents found yet. New sign-ups will appear here automatically.',
+                                      style: theme.textTheme.bodyMedium
+                                          ?.copyWith(
+                                            color: colorScheme.onSurfaceVariant,
+                                          ),
+                                      textAlign: TextAlign.center,
+                                    ),
+                                  );
+                                }
+                                final docs = snapshot.data!.docs;
+                                final query = _query;
+                                final filtered = query.isEmpty
+                                    ? docs
+                                    : docs.where((doc) {
+                                        final data =
+                                            (doc.data() ?? {})
+                                                as Map<String, dynamic>;
+                                        final name =
+                                            (data['displayName'] ??
+                                                    data['name'] ??
+                                                    '')
+                                                .toString()
+                                                .toLowerCase();
+                                        final email = (data['email'] ?? '')
+                                            .toString()
+                                            .toLowerCase();
+                                        final phone =
+                                            (data['phone'] ??
+                                                    data['phoneNumber'] ??
+                                                    '')
+                                                .toString()
+                                                .toLowerCase();
+                                        return name.contains(query) ||
+                                            email.contains(query) ||
+                                            phone.contains(query);
+                                      }).toList();
+                                if (filtered.isEmpty) {
+                                  return Center(
+                                    child: Text(
+                                      'No residents match your search.',
+                                      style: theme.textTheme.bodyMedium
+                                          ?.copyWith(
+                                            color: colorScheme.onSurfaceVariant,
+                                          ),
+                                    ),
+                                  );
+                                }
+                                return ListView.separated(
+                                  itemCount: filtered.length,
+                                  separatorBuilder: (context, _) =>
+                                      const SizedBox(height: 12),
+                                  itemBuilder: (context, index) {
+                                    final doc = filtered[index];
+                                    final data =
+                                        (doc.data() ?? {})
+                                            as Map<String, dynamic>;
+                                    final id = doc.id;
+                                    return _UserAdminTile(
+                                      data: data,
+                                      isAdmin: _isAdmin(data),
+                                      onEdit: () =>
+                                          _editUser(context, id, data),
+                                    );
+                                  },
+                                );
+                              },
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -2504,6 +5423,8 @@ class UsersAdminScreen extends StatelessWidget {
     String id,
     Map<String, dynamic> data,
   ) async {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
     final nameCtrl = TextEditingController(
       text: (data['displayName'] ?? data['name'] ?? '') as String,
     );
@@ -2514,17 +5435,41 @@ class UsersAdminScreen extends StatelessWidget {
       context: context,
       builder: (c) {
         return AlertDialog(
-          title: const Text('Edit User'),
+          title: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: colorScheme.primary.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Icon(
+                  Icons.edit_note_rounded,
+                  color: colorScheme.primary,
+                ),
+              ),
+              const SizedBox(width: 12),
+              const Expanded(child: Text('Edit resident details')),
+            ],
+          ),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               TextField(
                 controller: nameCtrl,
-                decoration: const InputDecoration(labelText: 'Name'),
+                decoration: const InputDecoration(
+                  labelText: 'Full name',
+                  prefixIcon: Icon(Icons.person_outline_rounded),
+                ),
               ),
+              const SizedBox(height: 12),
               TextField(
                 controller: phoneCtrl,
-                decoration: const InputDecoration(labelText: 'Phone'),
+                decoration: const InputDecoration(
+                  labelText: 'Phone number',
+                  prefixIcon: Icon(Icons.phone_rounded),
+                ),
+                keyboardType: TextInputType.phone,
               ),
             ],
           ),
@@ -2533,7 +5478,7 @@ class UsersAdminScreen extends StatelessWidget {
               onPressed: () => Navigator.of(c).pop(),
               child: const Text('Cancel'),
             ),
-            ElevatedButton(
+            FilledButton(
               onPressed: () async {
                 final name = nameCtrl.text.trim();
                 final phone = phoneCtrl.text.trim();
@@ -2541,7 +5486,6 @@ class UsersAdminScreen extends StatelessWidget {
                     .collection('users')
                     .doc(id)
                     .update({
-                      // write both sets of fields to keep both apps in sync
                       'displayName': name,
                       'name': name,
                       'phone': phone,
@@ -2554,11 +5498,119 @@ class UsersAdminScreen extends StatelessWidget {
                 });
                 if (c.mounted) Navigator.of(c).pop();
               },
-              child: const Text('Save'),
+              child: const Text('Save changes'),
             ),
           ],
         );
       },
+    );
+  }
+}
+
+class _UserAdminTile extends StatelessWidget {
+  const _UserAdminTile({
+    required this.data,
+    required this.isAdmin,
+    required this.onEdit,
+  });
+
+  final Map<String, dynamic> data;
+  final bool isAdmin;
+  final VoidCallback onEdit;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final name = (data['displayName'] ?? data['name'] ?? 'Resident').toString();
+    final email = (data['email'] ?? 'No email').toString();
+    final phone = (data['phone'] ?? data['phoneNumber'] ?? 'No phone')
+        .toString();
+    final createdAt = (data['createdAt'] as Timestamp?)?.toDate();
+    final lastActive = (data['lastActivityAt'] as Timestamp?)?.toDate();
+    final initials = name.isNotEmpty ? name.trim()[0].toUpperCase() : '?';
+    final createdLabel = createdAt != null
+        ? DateFormat('d MMM y').format(createdAt)
+        : 'Joined date unknown';
+    final lastActiveLabel = lastActive != null
+        ? 'Active ${DateFormat('d MMM y').format(lastActive)}'
+        : 'No recent activity';
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.22),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: colorScheme.primary.withValues(alpha: 0.04)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          CircleAvatar(
+            radius: 26,
+            backgroundColor: colorScheme.primary.withValues(alpha: 0.12),
+            child: Text(
+              initials,
+              style: theme.textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w700,
+                color: colorScheme.primary,
+              ),
+            ),
+          ),
+          const SizedBox(width: 18),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        name.isEmpty ? email : name,
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                    if (isAdmin)
+                      const _InfoPill(
+                        icon: Icons.verified_user_rounded,
+                        label: 'Admin',
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 10,
+                  runSpacing: 8,
+                  children: [
+                    _InfoPill(icon: Icons.mail_outline_rounded, label: email),
+                    _InfoPill(icon: Icons.phone_rounded, label: phone),
+                    _InfoPill(
+                      icon: Icons.schedule_rounded,
+                      label: createdLabel,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  lastActiveLabel,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 12),
+          Tooltip(
+            message: 'Edit resident',
+            child: IconButton(
+              onPressed: onEdit,
+              icon: const Icon(Icons.edit_outlined),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -2666,6 +5718,7 @@ class _SecurityOverlayState extends State<SecurityOverlay> {
             ),
             ElevatedButton(
               onPressed: () async {
+                final messenger = ScaffoldMessenger.of(c);
                 try {
                   final cred = EmailAuthProvider.credential(
                     email: user.email!,
@@ -2674,7 +5727,8 @@ class _SecurityOverlayState extends State<SecurityOverlay> {
                   await user.reauthenticateWithCredential(cred);
                   if (c.mounted) Navigator.of(c).pop(true);
                 } on FirebaseAuthException catch (e) {
-                  ScaffoldMessenger.of(c).showSnackBar(
+                  if (!c.mounted) return;
+                  messenger.showSnackBar(
                     SnackBar(content: Text(e.message ?? 'Re-auth failed')),
                   );
                 }
@@ -2697,7 +5751,7 @@ class _SecurityOverlayState extends State<SecurityOverlay> {
     final content = Focus(
       focusNode: _focusNode,
       autofocus: true,
-      onKeyEvent: (_, __) {
+      onKeyEvent: (node, event) {
         _onUserActivity();
         return KeyEventResult.ignored;
       },
@@ -2712,7 +5766,10 @@ class _SecurityOverlayState extends State<SecurityOverlay> {
       fit: StackFit.expand,
       children: [
         content,
-        ModalBarrier(color: Colors.black.withOpacity(0.5), dismissible: false),
+        ModalBarrier(
+          color: Colors.black.withValues(alpha: 0.5),
+          dismissible: false,
+        ),
         Center(
           child: Card(
             child: Padding(

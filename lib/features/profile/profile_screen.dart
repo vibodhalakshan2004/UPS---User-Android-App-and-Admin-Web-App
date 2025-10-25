@@ -288,16 +288,13 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                             _nameCtrl.text.trim() != (user.displayName ?? '')) {
                           await user.updateDisplayName(_nameCtrl.text.trim());
                         }
-                        // Update Firestore profile document. Do not overwrite the email yet if a
-                        // verification flow is pending; it will be updated once the auth email is updated.
+                        // Update Firestore profile document. Do not write 'email' here; rules allow only display fields on self-update.
                         final updateData = <String, dynamic>{
                           'displayName': _nameCtrl.text.trim(),
                           'phone': _phoneCtrl.text.trim(),
                           'address': _addressCtrl.text.trim(),
+                          'updatedAt': FieldValue.serverTimestamp(),
                         };
-                        if (!emailChangeInitiated) {
-                          updateData['email'] = newEmail;
-                        }
                         await FirebaseFirestore.instance
                             .collection('users')
                             .doc(user.uid)

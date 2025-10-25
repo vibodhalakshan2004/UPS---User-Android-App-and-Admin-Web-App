@@ -3,6 +3,7 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart' as ll;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'dart:async';
+import 'package:geolocator/geolocator.dart' as geo;
 
 // Default map center (Udubaddawa, Sri Lanka - approximate)
 const ll.LatLng _kDefaultCenter = ll.LatLng(7.45, 80.03);
@@ -17,6 +18,7 @@ class TrackerScreen extends StatefulWidget {
 class _TrackerScreenState extends State<TrackerScreen> {
   static const ll.LatLng _center = _kDefaultCenter;
   final MapController _mapController = MapController();
+  ll.LatLng? _userLoc;
 
   Stream<List<_MapItem>> _itemsStream() {
     return FirebaseFirestore.instance
@@ -39,86 +41,100 @@ class _TrackerScreenState extends State<TrackerScreen> {
             stream: _itemsStream(),
             builder: (context, snapshot) {
               final items = snapshot.data ?? const <_MapItem>[];
-              return AnimatedSwitcher(
+              final map = AnimatedSwitcher(
                 duration: const Duration(milliseconds: 300),
                 switchInCurve: Curves.easeOut,
                 switchOutCurve: Curves.easeIn,
                 child: snapshot.connectionState == ConnectionState.waiting
                     ? const Center(child: CircularProgressIndicator())
                     : FlutterMap(
-                mapController: _mapController,
-                options: MapOptions(
-                  initialCenter: _center,
-                  initialZoom: 12,
-                  // Enable all interactions; on web this includes mouse wheel zoom
-                  // If your flutter_map version supports InteractionOptions, this will work.
-                  // Otherwise, defaults already enable wheel zoom.
-                  // interactionOptions: const InteractionOptions(flags: InteractiveFlag.all),
-                ),
-                children: [
-                  TileLayer(
-                    urlTemplate:
-                        'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-                    subdomains: const ['a', 'b', 'c'],
-                    userAgentPackageName: 'com.example.ups',
-                    tileProvider: NetworkTileProvider(),
-                  ),
-                  RichAttributionWidget(
-                    attributions: [
-                      TextSourceAttribution(
-                        '© OpenStreetMap contributors',
-                        onTap: () => debugPrint(
-                          'https://www.openstreetmap.org/copyright',
+                        key: const ValueKey('map'),
+                        mapController: _mapController,
+                        options: MapOptions(
+                          initialCenter: _center,
+                          initialZoom: 12,
                         ),
-                      ),
-                    ],
-                  ),
-                  MarkerLayer(
-                    markers: [
-                      for (final it in items)
-                        Marker(
-                          width: 46,
-                          height: 56,
-                          point: it.position,
-                          child: GestureDetector(
-                            onTap: () => _showTruckPopup(context, it),
-                            child: _PulseMarker(
-                              recent: it.updatedAt != null &&
-                                  DateTime.now().difference(it.updatedAt!).inMinutes <= 2,
-                              child: _MarkerIcon(label: it.name),
-                            ),
+                        children: [
+                          TileLayer(
+                            urlTemplate:
+                                'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+                            subdomains: const ['a', 'b', 'c'],
+                            userAgentPackageName: 'com.example.ups',
+                            tileProvider: NetworkTileProvider(),
                           ),
-                        ),
-                    ],
+                          RichAttributionWidget(
+                            attributions: [
+                              TextSourceAttribution(
+                                '© OpenStreetMap contributors',
+                                onTap: () => debugPrint(
+                                  'https://www.openstreetmap.org/copyright',
+                                ),
+                              ),
+                            ],
+                          ),
+                          // Trucks layer
+                          MarkerLayer(
+                            markers: [
+                              for (final it in items)
+                                Marker(
+                                  width: 46,
+                                  height: 56,
+                                  point: it.position,
+                                  child: GestureDetector(
+                                    onTap: () => _showTruckPopup(context, it),
+                                    child: _PulseMarker(
+                                      recent: it.updatedAt != null &&
+                                          DateTime.now()
+                                                  .difference(it.updatedAt!)
+                                                  .inMinutes <=
+                                              2,
+                                      child: _MarkerIcon(label: it.name),
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          ),
+                          // User location layer (if available)
+                          if (_userLoc != null)
+                            MarkerLayer(
+                              markers: [
+                                Marker(
+                                  width: 24,
+                                  height: 24,
+                                  point: _userLoc!,
+                                  child: Container(
+                                    decoration: BoxDecoration(
+                                      color: Colors.blue,
+                                      shape: BoxShape.circle,
+                                      boxShadow: const [
+                                        BoxShadow(
+                                            blurRadius: 6,
+                                            color: Colors.black26),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                        ],
+                      ),
+              );
+              // Overlay the live trucks bar inside same stack so we have access to items
+              return Stack(
+                children: [
+                  map,
+                  Positioned(
+                    bottom: 16,
+                    left: 16,
+                    right: 16,
+                    child: _LiveTrucksBar(
+                      items: items,
+                      onTapTruck: _centerOn,
+                    ),
                   ),
                 ],
-              ),
               );
             },
-          ),
-          Positioned(
-            bottom: 16,
-            left: 16,
-            right: 16,
-            child: Card(
-              elevation: 8,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Padding(
-                padding: const EdgeInsets.all(16.0),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceAround,
-                  children: <Widget>[
-                    _buildTrackerInfo(
-                      context,
-                      icon: Icons.local_shipping,
-                      label: 'Trucks (live)',
-                    ),
-                  ],
-                ),
-              ),
-            ),
           ),
           // Zoom controls
           Positioned(
@@ -126,41 +142,6 @@ class _TrackerScreenState extends State<TrackerScreen> {
             top: 80,
             child: Column(
               children: [
-                // Fit to markers
-                Material(
-                  color: Colors.white,
-                  shape: const CircleBorder(),
-                  elevation: 3,
-                  child: IconButton(
-                    tooltip: 'Fit all',
-                    icon: const Icon(Icons.center_focus_strong),
-                    onPressed: () {
-                      // We can't read stream synchronously; so use current camera if empty.
-                      // Instead, fetch last snapshot via a one-shot get of vehicles.
-                      FirebaseFirestore.instance
-                          .collection('vehicles')
-                          .where('active', isEqualTo: true)
-                          .get()
-                          .then((qs) {
-                        final pts = <ll.LatLng>[];
-                        for (final d in qs.docs) {
-                          final data = d.data();
-                          final lat = (data['lat'] as num?)?.toDouble();
-                          final lng = (data['lng'] as num?)?.toDouble();
-                          if (lat != null && lng != null) {
-                            pts.add(ll.LatLng(lat, lng));
-                          }
-                        }
-                        if (pts.isEmpty) return;
-                        final bounds = LatLngBounds.fromPoints(pts);
-                        _mapController.fitCamera(
-                          CameraFit.bounds(bounds: bounds, padding: const EdgeInsets.all(36)),
-                        );
-                      });
-                    },
-                  ),
-                ),
-                const SizedBox(height: 8),
                 Material(
                   color: Colors.white,
                   shape: const CircleBorder(),
@@ -191,27 +172,131 @@ class _TrackerScreenState extends State<TrackerScreen> {
               ],
             ),
           ),
+          // Current location button
+          Positioned(
+            right: 12,
+            bottom: 100,
+            child: Material(
+              color: Colors.white,
+              shape: const CircleBorder(),
+              elevation: 3,
+              child: IconButton(
+                tooltip: 'My location',
+                icon: const Icon(Icons.my_location),
+                onPressed: _locateMe,
+              ),
+            ),
+          ),
         ],
       ),
     );
   }
 
-  Widget _buildTrackerInfo(
-    BuildContext context, {
-    required IconData icon,
-    required String label,
-  }) {
-    final theme = Theme.of(context);
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(icon, color: theme.colorScheme.primary, size: 24),
-        const SizedBox(height: 8),
-        Text(label, style: theme.textTheme.bodyMedium),
-      ],
+  Future<void> _locateMe() async {
+    try {
+      final service = await geo.Geolocator.isLocationServiceEnabled();
+      if (!service) {
+        _showSnack('Location services are disabled');
+        return;
+      }
+      var permission = await geo.Geolocator.checkPermission();
+      if (permission == geo.LocationPermission.denied) {
+        permission = await geo.Geolocator.requestPermission();
+      }
+      if (permission == geo.LocationPermission.denied) {
+        _showSnack('Location permission denied');
+        return;
+      }
+      if (permission == geo.LocationPermission.deniedForever) {
+        _showSnack('Location permission permanently denied. Enable in Settings.');
+        return;
+      }
+
+      final pos = await geo.Geolocator.getCurrentPosition(
+        locationSettings: const geo.LocationSettings(
+          accuracy: geo.LocationAccuracy.high,
+        ),
+      );
+      final here = ll.LatLng(pos.latitude, pos.longitude);
+      if (!mounted) return;
+      setState(() => _userLoc = here);
+      _mapController.move(here, 15);
+    } catch (e) {
+      _showSnack('Failed to get location');
+    }
+  }
+
+  void _centerOn(_MapItem it) {
+    _mapController.move(it.position, 15);
+  }
+
+  void _showSnack(String msg) {
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    messenger?.showSnackBar(SnackBar(content: Text(msg)));
+  }
+
+}
+
+class _LiveTrucksBar extends StatelessWidget {
+  final List<_MapItem> items;
+  final void Function(_MapItem) onTapTruck;
+  const _LiveTrucksBar({required this.items, required this.onTapTruck});
+
+  @override
+  Widget build(BuildContext context) {
+    final live = items;
+    return Card(
+      elevation: 8,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.local_shipping, size: 20),
+                const SizedBox(width: 8),
+                Text('Trucks (live: ${live.length})',
+                    style: Theme.of(context).textTheme.bodyMedium),
+              ],
+            ),
+            const SizedBox(height: 8),
+            SizedBox(
+              height: 40,
+              child: live.isEmpty
+                  ? const Center(child: Text('No live trucks'))
+                  : ListView.separated(
+                      scrollDirection: Axis.horizontal,
+                      itemBuilder: (c, i) {
+                        final it = live[i];
+                        final recent = it.updatedAt != null &&
+                            DateTime.now()
+                                    .difference(it.updatedAt!)
+                                    .inMinutes <=
+                                2;
+                        return ActionChip(
+                          avatar: Icon(
+                            Icons.local_shipping,
+                            size: 18,
+                            color: recent ? Colors.green : Colors.grey,
+                          ),
+                          label: Text(it.name, overflow: TextOverflow.ellipsis),
+                          onPressed: () => onTapTruck(it),
+                        );
+                      },
+                      separatorBuilder: (_, i2) => const SizedBox(width: 8),
+                      itemCount: live.length,
+                    ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
+
 
 class _MarkerIcon extends StatelessWidget {
   final String label;
@@ -295,7 +380,7 @@ class _PulseMarkerState extends State<_PulseMarker>
                     width: 22,
                     height: 22,
                     decoration: BoxDecoration(
-                      color: Colors.green.withOpacity(0.3),
+                      color: Colors.green.withValues(alpha: 0.3),
                       shape: BoxShape.circle,
                     ),
                   ),
