@@ -39,6 +39,12 @@ migrate_working_dir/
 /coverage/
 .venv/
 
+# Environment & secret config
+.env
+*.env
+*.env.local
+apps/**/firebase.env
+
 # Symbolication related
 app.*.symbols
 

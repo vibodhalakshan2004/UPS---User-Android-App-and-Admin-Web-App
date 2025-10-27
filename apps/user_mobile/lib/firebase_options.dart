@@ -49,21 +49,60 @@ class DefaultFirebaseOptions {
     }
   }
 
-  static const FirebaseOptions web = FirebaseOptions(
-    apiKey: 'AIzaSyAN1Hv5Qr4_LIY4BGevFgGamQTAdQfcZuk',
-    appId: '1:36064760029:web:efba54bf6eaf65abfecb34',
-    messagingSenderId: '36064760029',
-    projectId: 'ups-app-7d001',
-    authDomain: 'ups-app-7d001.firebaseapp.com',
-    storageBucket: 'ups-app-7d001.firebasestorage.app',
-    measurementId: 'G-80P4E3VHGL',
-  );
+  static FirebaseOptions get web => FirebaseOptions(
+        apiKey: _require(_webApiKey, 'USER_MOBILE_FIREBASE_WEB_API_KEY'),
+        appId: _require(_webAppId, 'USER_MOBILE_FIREBASE_WEB_APP_ID'),
+        messagingSenderId:
+            _require(_messagingSenderId, 'USER_MOBILE_FIREBASE_MESSAGING_SENDER_ID'),
+        projectId: _require(_projectId, 'USER_MOBILE_FIREBASE_PROJECT_ID'),
+        authDomain: _require(_webAuthDomain, 'USER_MOBILE_FIREBASE_WEB_AUTH_DOMAIN'),
+        storageBucket: _require(_storageBucket, 'USER_MOBILE_FIREBASE_STORAGE_BUCKET'),
+        measurementId:
+            _optional(_webMeasurementId, 'USER_MOBILE_FIREBASE_WEB_MEASUREMENT_ID'),
+      );
 
-  static const FirebaseOptions android = FirebaseOptions(
-    apiKey: 'AIzaSyBnVn3OPoSXKbPNQLEGhCP5iTnMaVcDG28',
-    appId: '1:36064760029:android:86855c4e2aba92aefecb34',
-    messagingSenderId: '36064760029',
-    projectId: 'ups-app-7d001',
-    storageBucket: 'ups-app-7d001.firebasestorage.app',
-  );
+  static FirebaseOptions get android => FirebaseOptions(
+        apiKey: _require(_androidApiKey, 'USER_MOBILE_FIREBASE_ANDROID_API_KEY'),
+        appId: _require(_androidAppId, 'USER_MOBILE_FIREBASE_ANDROID_APP_ID'),
+        messagingSenderId:
+            _require(_messagingSenderId, 'USER_MOBILE_FIREBASE_MESSAGING_SENDER_ID'),
+        projectId: _require(_projectId, 'USER_MOBILE_FIREBASE_PROJECT_ID'),
+        storageBucket: _require(_storageBucket, 'USER_MOBILE_FIREBASE_STORAGE_BUCKET'),
+      );
+
+  static const String _projectId =
+      String.fromEnvironment('USER_MOBILE_FIREBASE_PROJECT_ID', defaultValue: '');
+  static const String _storageBucket =
+      String.fromEnvironment('USER_MOBILE_FIREBASE_STORAGE_BUCKET', defaultValue: '');
+  static const String _messagingSenderId =
+      String.fromEnvironment('USER_MOBILE_FIREBASE_MESSAGING_SENDER_ID', defaultValue: '');
+
+  static const String _webApiKey =
+      String.fromEnvironment('USER_MOBILE_FIREBASE_WEB_API_KEY', defaultValue: '');
+  static const String _webAppId =
+      String.fromEnvironment('USER_MOBILE_FIREBASE_WEB_APP_ID', defaultValue: '');
+  static const String _webAuthDomain =
+      String.fromEnvironment('USER_MOBILE_FIREBASE_WEB_AUTH_DOMAIN', defaultValue: '');
+  static const String _webMeasurementId =
+      String.fromEnvironment('USER_MOBILE_FIREBASE_WEB_MEASUREMENT_ID', defaultValue: '');
+
+  static const String _androidApiKey =
+      String.fromEnvironment('USER_MOBILE_FIREBASE_ANDROID_API_KEY', defaultValue: '');
+  static const String _androidAppId =
+      String.fromEnvironment('USER_MOBILE_FIREBASE_ANDROID_APP_ID', defaultValue: '');
+
+  static String _require(String value, String name) {
+    if (value.isEmpty) {
+      throw StateError('Missing Firebase configuration for $name. '
+          'Provide it with --dart-define or --dart-define-from-file.');
+    }
+    return value;
+  }
+
+  static String? _optional(String value, String _) {
+    if (value.isEmpty) {
+      return null;
+    }
+    return value;
+  }
 }
