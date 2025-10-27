@@ -1,51 +1,48 @@
 # UPS Apps (Flutter + Firebase)
 
-Clean, production-focused repo with two apps:
+Monorepo housing three Flutter applications that share Firebase backends and assets.
 
-- User app (Flutter): `lib/`, `android/`, `web/`, shared `assets/`
-- Admin web app (Flutter): `admin_web/`
+## Apps
 
-Both apps use OpenStreetMap via flutter_map and Firebase (Auth, Firestore, Storage, Functions).
+- **Desktop Admin** – `apps/admin_desktop`
+- **Mobile User** – `apps/user_mobile`
+- **Web Admin** – `apps/admin_web`
+
+Cloud Functions (telemetry ingest, webhooks, etc.) live in `functions/`. Documentation is under `docs/`.
 
 ## Quick start
 
-Prereqs: Flutter 3.x, Firebase project set up (FlutterFire already configured in this repo).
+All apps target Flutter 3.19+ with Firebase already configured through FlutterFire.
 
-Run the user app (mobile or web):
+### Desktop admin (Windows)
 
-```sh
+```powershell
+cd apps/admin_desktop
 flutter pub get
-flutter run        # pick your device
+flutter run -d windows
 ```
 
-Run the admin web app (Chrome):
+### Mobile user app (Android)
 
-```sh
-cd admin_web
+```powershell
+cd apps/user_mobile
+flutter pub get
+flutter run        # select connected device or emulator
+```
+
+### Web admin panel (Chrome)
+
+```powershell
+cd apps/admin_web
 flutter pub get
 flutter run -d chrome
+```
 
-Admin login is restricted to admin accounts.
+## Firebase roles reminder
 
-Grant admin:
-1) Create the user in Firebase Authentication (email/password)
-2) Create Firestore doc `roles/{UID}` with `{ admin: true }` where UID is the Authentication UID
+Admin surfaces are restricted. To grant access:
 
-That’s it. Vehicles, bookings, complaints, news, and users are all wired to Firestore with secure rules.
+1. Create the user in Firebase Authentication (email/password).
+2. Add a Firestore document `roles/{UID}` with `{ admin: true }`.
 
-## Project layout
-
-- `lib/`            User app code
-- `admin_web/`      Admin Flutter web app
-- `assets/`         Shared images (e.g., app logo)
-- `android/`        Android project for user app
-- `web/`            Flutter web support for user app
-- `firestore.rules` Firestore security rules
-- `functions/`      Cloud Functions (GPS ingest endpoint)
-
-Non-essential docs and samples have been removed for clarity.
-flutter run
-
-# Run admin panel
-cd admin_web
-flutter run -d chrome
+Bookings, complaints, news, tracking, and dashboards are wired to Firestore with matching security rules.

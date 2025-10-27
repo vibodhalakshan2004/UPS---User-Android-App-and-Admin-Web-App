@@ -146,8 +146,16 @@ class _BookingScreenState extends State<BookingScreen> {
       return;
     }
 
+    if (_bookingType == 'cemetery' &&
+        (_deathCertUrl == null || _deathCertUrl!.isEmpty)) {
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Please upload the death certificate.')),
+      );
+      return;
+    }
+
     final details = <String>[];
-    final notes = _reasonCtrl.text.trim();
+    final notes = _bookingType == 'ground' ? _reasonCtrl.text.trim() : '';
     final preferredTime = _timeCtrl.text.trim();
 
     if (notes.isNotEmpty) {
@@ -167,8 +175,10 @@ class _BookingScreenState extends State<BookingScreen> {
       bookingDate: bookingDate,
       bookingReason: details.join(' | '),
       status: 'pending',
-      deathCertificateUrl: _deathCertUrl,
-      deathCertificateName: _deathCertName,
+    deathCertificateUrl:
+      _bookingType == 'cemetery' ? _deathCertUrl : null,
+    deathCertificateName:
+      _bookingType == 'cemetery' ? _deathCertName : null,
     );
 
     try {
@@ -334,6 +344,12 @@ class _BookingScreenState extends State<BookingScreen> {
                   _bookingType = value;
                   _cemeterySlot = null;
                   _timeCtrl.clear();
+                  if (_bookingType == 'cemetery') {
+                    _reasonCtrl.clear();
+                  } else {
+                    _deathCertUrl = null;
+                    _deathCertName = null;
+                  }
                 });
               },
             ),
@@ -476,54 +492,62 @@ class _BookingScreenState extends State<BookingScreen> {
                       ),
                     ),
                     const SizedBox(height: 16),
-                    TextFormField(
-                      controller: _reasonCtrl,
-                      maxLines: 4,
-                      decoration: InputDecoration(
-                        labelText: 'Reason for booking',
-                        hintText: 'Tell us what the crew should prepare for',
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(16),
+                    if (_bookingType == 'ground') ...[
+                      TextFormField(
+                        controller: _reasonCtrl,
+                        maxLines: 4,
+                        decoration: InputDecoration(
+                          labelText: 'Reason for booking',
+                          hintText:
+                              'Tell us what the crew should prepare for',
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                        ),
+                        validator: (value) {
+                          if (_bookingType != 'ground') {
+                            return null;
+                          }
+                          if (value == null || value.trim().isEmpty) {
+                            return 'Please provide context for the request';
+                          }
+                          return null;
+                        },
+                      ),
+                      const SizedBox(height: 20),
+                    ],
+                    if (_bookingType == 'cemetery') ...[
+                      Text(
+                        'Death certificate',
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w600,
                         ),
                       ),
-                      validator: (value) {
-                        if (value == null || value.trim().isEmpty) {
-                          return 'Please provide context for the request';
-                        }
-                        return null;
-                      },
-                    ),
-                    const SizedBox(height: 20),
-                    Text(
-                      'Attachments',
-                      style: theme.textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            _deathCertName ??
-                                'Upload a death certificate (PDF or image)',
-                            overflow: TextOverflow.ellipsis,
-                            style: theme.textTheme.bodyMedium?.copyWith(
-                              color: theme.colorScheme.onSurfaceVariant,
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              _deathCertName ??
+                                  'Upload a death certificate (PDF or image)',
+                              overflow: TextOverflow.ellipsis,
+                              style: theme.textTheme.bodyMedium?.copyWith(
+                                color: theme.colorScheme.onSurfaceVariant,
+                              ),
                             ),
                           ),
-                        ),
-                        const SizedBox(width: 12),
-                        FilledButton.tonalIcon(
-                          onPressed: () => _pickDeathCertificate(context),
-                          icon: const Icon(Icons.upload_file_rounded),
-                          label: Text(
-                            _deathCertUrl == null ? 'Upload' : 'Replace',
+                          const SizedBox(width: 12),
+                          FilledButton.tonalIcon(
+                            onPressed: () => _pickDeathCertificate(context),
+                            icon: const Icon(Icons.upload_file_rounded),
+                            label: Text(
+                              _deathCertUrl == null ? 'Upload' : 'Replace',
+                            ),
                           ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 20),
+                        ],
+                      ),
+                      const SizedBox(height: 20),
+                    ],
                     Wrap(
                       spacing: 12,
                       runSpacing: 8,

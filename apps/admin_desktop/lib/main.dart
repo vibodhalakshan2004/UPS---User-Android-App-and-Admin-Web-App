@@ -1,11 +1,12 @@
+import 'dart:async';
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
-import 'dart:async';
-import 'dart:typed_data';
 import 'package:file_picker/file_picker.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/services.dart';
@@ -13,17 +14,39 @@ import 'package:url_launcher/url_launcher.dart' as url_launcher;
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart' as ll;
 import 'package:intl/intl.dart';
-import 'package:pdf/pdf.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:pdf/pdf.dart' as pdf;
 import 'package:pdf/widgets.dart' as pw;
-import 'package:printing/printing.dart';
 
 import 'firebase_options.dart';
 import 'core/theme.dart';
 import 'screens/login_screen.dart';
 
+extension _ColorAlphaCompat on Color {
+  Color withAlphaCompat(double alpha) {
+    final double normalizedAlpha = alpha.clamp(0.0, 1.0).toDouble();
+    final dynamic dynamicColor = this;
+    try {
+      final result = dynamicColor.withValues(alpha: normalizedAlpha);
+      if (result is Color) {
+        return result;
+      }
+    } catch (_) {
+      // Fall through to withAlpha for older Flutter versions missing withValues.
+    }
+    final int channel = (normalizedAlpha * 255).round();
+    final int safeChannel = channel < 0
+        ? 0
+        : (channel > 255
+            ? 255
+            : channel);
+    return withAlpha(safeChannel);
+  }
+}
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  await Firebase.initializeApp(options: DesktopFirebaseOptions.currentPlatform);
   try {
     await FirebaseAuth.instance.setPersistence(Persistence.LOCAL);
   } catch (_) {}
@@ -55,6 +78,24 @@ class AuthService with ChangeNotifier {
   }
 }
 
+class ThemeController with ChangeNotifier {
+  ThemeMode _mode = ThemeMode.light;
+
+  ThemeMode get mode => _mode;
+  bool get isDark => _mode == ThemeMode.dark;
+
+  void toggle() {
+    _mode = isDark ? ThemeMode.light : ThemeMode.dark;
+    notifyListeners();
+  }
+
+  void setMode(ThemeMode mode) {
+    if (_mode == mode) return;
+    _mode = mode;
+    notifyListeners();
+  }
+}
+
 class _NewsListItem extends StatelessWidget {
   const _NewsListItem({required this.id, required this.data});
 
@@ -70,16 +111,16 @@ class _NewsListItem extends StatelessWidget {
     final timestamp = data['publishedAt'] as Timestamp?;
     final publishedAt = timestamp?.toDate();
     final imageUrls = (data['imageUrls'] as List?) ?? const [];
-    final pdfUrl = (data['pdfUrl'] as String?)?.isNotEmpty == true;
+    final hasPdf = (data['pdfUrl'] as String?)?.isNotEmpty == true;
     final dateLabel = publishedAt != null
         ? DateFormat('d MMM y • h:mm a').format(publishedAt)
         : 'Draft';
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: scheme.surfaceContainerHighest.withValues(alpha: 0.22),
+        color: scheme.surfaceContainerHighest.withAlphaCompat(0.22),
         borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: scheme.primary.withValues(alpha: 0.04)),
+        border: Border.all(color: scheme.primary.withAlphaCompat(0.04)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -124,7 +165,7 @@ class _NewsListItem extends StatelessWidget {
                   label:
                       '${imageUrls.length} image${imageUrls.length == 1 ? '' : 's'}',
                 ),
-              if (pdfUrl)
+              if (hasPdf)
                 const _InfoPill(
                   icon: Icons.picture_as_pdf_outlined,
                   label: 'PDF attachment',
@@ -132,18 +173,30 @@ class _NewsListItem extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 16),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          Wrap(
+            spacing: 12,
+            runSpacing: 8,
+            crossAxisAlignment: WrapCrossAlignment.center,
             children: [
-              TextButton.icon(
+              FilledButton.tonalIcon(
                 onPressed: () => context.go('/news/$id'),
                 icon: const Icon(Icons.open_in_new_rounded),
                 label: const Text('Open details'),
               ),
-              IconButton(
-                tooltip: 'Copy share link',
+              OutlinedButton.icon(
                 onPressed: () => _copyShareLink(context),
                 icon: const Icon(Icons.link_rounded),
+                label: const Text('Copy link'),
+              ),
+              Tooltip(
+                message: 'Delete post',
+                child: IconButton(
+                  onPressed: () => _deleteNews(context),
+                  icon: Icon(
+                    Icons.delete_outline_rounded,
+                    color: scheme.error,
+                  ),
+                ),
               ),
             ],
           ),
@@ -159,6 +212,74 @@ class _NewsListItem extends StatelessWidget {
     scaffold.showSnackBar(
       const SnackBar(content: Text('Share link copied to clipboard')),
     );
+  }
+
+  Future<void> _deleteNews(BuildContext context) async {
+    final theme = Theme.of(context);
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Delete news post'),
+          content: const Text(
+            'This will permanently remove the post and any files attached to it.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              style: FilledButton.styleFrom(
+                backgroundColor: theme.colorScheme.error,
+              ),
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('Delete'),
+            ),
+          ],
+        );
+      },
+    );
+    if (confirmed != true || !context.mounted) return;
+
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final storage = FirebaseStorage.instance;
+      final db = FirebaseFirestore.instance;
+      final images =
+          (data['imageUrls'] as List?)?.cast<String>() ?? const <String>[];
+      for (final url in images) {
+        if (url.isEmpty) continue;
+        try {
+          await storage.refFromURL(url).delete();
+        } catch (error) {
+          debugPrint('Failed to delete image for news $id: $error');
+        }
+      }
+      final pdfUrl = (data['pdfUrl'] as String?) ?? '';
+      if (pdfUrl.isNotEmpty) {
+        try {
+          await storage.refFromURL(pdfUrl).delete();
+        } catch (error) {
+          debugPrint('Failed to delete PDF for news $id: $error');
+        }
+      }
+      await db.collection('news').doc(id).delete();
+      await AuditLog.log('news_deleted', {
+        'id': id,
+        'title': (data['title'] ?? '').toString(),
+      });
+      messenger.showSnackBar(
+        const SnackBar(content: Text('News post deleted.')),
+      );
+    } catch (error) {
+      debugPrint('Failed to delete news $id: $error');
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text('Failed to delete news. Please try again.'),
+        ),
+      );
+    }
   }
 }
 
@@ -214,6 +335,7 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MultiProvider(
       providers: [
+        ChangeNotifierProvider(create: (_) => ThemeController()),
         ChangeNotifierProvider(create: (_) => AuthService()),
         ChangeNotifierProxyProvider<AuthService, RolesService>(
           create: (context) => RolesService(context.read<AuthService>()),
@@ -222,12 +344,14 @@ class MyApp extends StatelessWidget {
       ],
       child: Consumer<AuthService>(
         builder: (context, auth, _) {
+          final themeController = context.watch<ThemeController>();
           final roles = context.watch<RolesService>();
           final router = _router(auth, roles);
           final app = MaterialApp.router(
             title: 'UPS Admin Panel',
             theme: AppTheme.lightTheme,
             darkTheme: AppTheme.darkTheme,
+            themeMode: themeController.mode,
             routerConfig: router,
           );
           // Wrap with SecurityOverlay only when logged in to enable inactivity auto-lock
@@ -346,9 +470,7 @@ class NotAuthorizedScreen extends StatelessWidget {
                       Container(
                         padding: const EdgeInsets.all(16),
                         decoration: BoxDecoration(
-                          color: theme.colorScheme.primary.withValues(
-                            alpha: 0.12,
-                          ),
+                          color: theme.colorScheme.primary.withAlphaCompat(0.12),
                           shape: BoxShape.circle,
                         ),
                         child: Icon(
@@ -422,21 +544,61 @@ class _AdminScaffold extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final width = MediaQuery.of(context).size.width;
+    final showRail = width >= 1100;
+    final effectiveExtend = showRail ? false : extendBodyBehindAppBar;
+
+    late final Widget content;
+    if (showRail) {
+      content = Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const _DesktopNavRail(),
+          Expanded(
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 240),
+              curve: Curves.easeOutCubic,
+              color: theme.colorScheme.surfaceContainerLowest,
+              child: body,
+            ),
+          ),
+        ],
+      );
+    } else {
+      content = AnimatedContainer(
+        duration: const Duration(milliseconds: 240),
+        curve: Curves.easeOutCubic,
+        color: theme.colorScheme.surfaceContainerLowest,
+        child: body,
+      );
+    }
+
     return Scaffold(
-      drawer: const _Nav(),
-      extendBodyBehindAppBar: extendBodyBehindAppBar,
-      appBar: _AdminAppBar(title: title, actions: actions),
+      backgroundColor: theme.colorScheme.surfaceContainerLowest,
+      drawer: showRail ? null : const _Nav(),
+      extendBodyBehindAppBar: effectiveExtend,
+      appBar: _AdminAppBar(
+        title: title,
+        actions: actions,
+        showDivider: !showRail,
+      ),
       floatingActionButton: floatingActionButton,
-      body: body,
+      body: content,
     );
   }
 }
 
 class _AdminAppBar extends StatelessWidget implements PreferredSizeWidget {
-  const _AdminAppBar({required this.title, this.actions});
+  const _AdminAppBar({
+    required this.title,
+    this.actions,
+    this.showDivider = false,
+  });
 
   final String title;
   final List<Widget>? actions;
+  final bool showDivider;
 
   @override
   Size get preferredSize => const Size.fromHeight(72);
@@ -444,47 +606,89 @@ class _AdminAppBar extends StatelessWidget implements PreferredSizeWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
     return AppBar(
       elevation: 0,
-      backgroundColor: Colors.transparent,
-      foregroundColor: Colors.white,
+      scrolledUnderElevation: 8,
+  backgroundColor: scheme.surface.withAlphaCompat(0.92),
+      surfaceTintColor: Colors.transparent,
+      foregroundColor: scheme.onSurface,
       centerTitle: false,
       titleSpacing: 24,
-      flexibleSpace: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [Color(0xFF102A68), Color(0xFF1F4172)],
-          ),
-        ),
-      ),
+      toolbarHeight: 72,
       title: Row(
         children: [
           Container(
             padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.18),
+              color: scheme.primary.withAlphaCompat(0.12),
               borderRadius: BorderRadius.circular(16),
             ),
-            child: const Icon(Icons.apartment_rounded, color: Colors.white),
+            child: SizedBox(
+              height: 28,
+              width: 28,
+              child: _Logo(),
+            ),
           ),
           const SizedBox(width: 12),
           Text(
             title,
             style: theme.textTheme.titleLarge?.copyWith(
-              color: Colors.white,
               fontWeight: FontWeight.w700,
             ),
           ),
         ],
       ),
       actions: [
+        _ThemeModeToggle(),
+        const SizedBox(width: 12),
         const _UserBadge(),
         const SizedBox(width: 16),
         ...(actions ?? const []),
         const SizedBox(width: 12),
       ],
+      bottom: showDivider
+          ? PreferredSize(
+              preferredSize: const Size.fromHeight(1),
+              child: Container(
+                height: 1,
+                color: scheme.outlineVariant.withAlphaCompat(0.6),
+              ),
+            )
+          : null,
+    );
+  }
+}
+
+class _ThemeModeToggle extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    final controller = context.watch<ThemeController>();
+    final isDark = controller.isDark;
+    final scheme = Theme.of(context).colorScheme;
+    return Tooltip(
+      message: isDark ? 'Switch to light theme' : 'Switch to dark theme',
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: scheme.surfaceContainerHigh,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: scheme.outlineVariant.withAlphaCompat(0.5)),
+        ),
+        child: IconButton(
+          onPressed: controller.toggle,
+          icon: AnimatedSwitcher(
+            duration: const Duration(milliseconds: 200),
+            transitionBuilder: (child, animation) => FadeTransition(
+              opacity: animation,
+              child: child,
+            ),
+            child: Icon(
+              isDark ? Icons.light_mode_rounded : Icons.dark_mode_rounded,
+              key: ValueKey<bool>(isDark),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
@@ -497,27 +701,28 @@ class _UserBadge extends StatelessWidget {
     final user = FirebaseAuth.instance.currentUser;
     final email = user?.email ?? 'Admin user';
     final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
     return Container(
       margin: const EdgeInsets.symmetric(vertical: 12),
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.12),
+  color: scheme.surfaceContainerHighest,
         borderRadius: BorderRadius.circular(32),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
+        border: Border.all(color: scheme.outlineVariant),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Icon(
+          Icon(
             Icons.verified_user_rounded,
-            color: Colors.white,
+            color: scheme.primary,
             size: 18,
           ),
           const SizedBox(width: 8),
           Text(
             email,
             style: theme.textTheme.labelLarge?.copyWith(
-              color: Colors.white,
+              color: scheme.onSurface,
               fontWeight: FontWeight.w600,
             ),
           ),
@@ -534,13 +739,28 @@ class _AdminGradientBackground extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final bool dark = theme.brightness == Brightness.dark;
+
+    final List<Color> colors;
+    if (dark) {
+      final top = Color.lerp(scheme.surfaceContainerHigh, Colors.black, 0.12)!;
+      final mid = Color.lerp(scheme.surface, scheme.primary.withAlphaCompat(0.3), 0.35)!;
+      colors = [top, mid, theme.scaffoldBackgroundColor];
+    } else {
+      final top = Color.lerp(scheme.surfaceContainerHigh, scheme.primary.withAlphaCompat(0.18), 0.45)!;
+      final mid = Color.lerp(scheme.surface, scheme.secondary.withAlphaCompat(0.12), 0.3)!;
+      colors = [top, mid, theme.scaffoldBackgroundColor];
+    }
+
     return DecoratedBox(
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
-          colors: [Color(0xFF0F1B3F), Color(0xFF101A2D), Color(0xFFF4F6FB)],
-          stops: [0, 0.38, 1],
+          colors: colors,
+          stops: const [0, 0.42, 1],
         ),
       ),
       child: child,
@@ -570,7 +790,7 @@ class AdminDashboard extends StatelessWidget {
           top: false,
           child: Center(
             child: SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(24, 120, 24, 48),
+              padding: const EdgeInsets.fromLTRB(24, 72, 24, 48),
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 1200),
                 child: Column(
@@ -630,7 +850,7 @@ class _DashboardHero extends StatelessWidget {
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
           colors: [
-            theme.colorScheme.primary.withValues(alpha: 0.95),
+            theme.colorScheme.primary.withAlphaCompat(0.95),
             theme.colorScheme.secondary,
           ],
         ),
@@ -696,9 +916,9 @@ class _DashboardHeroChip extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.18),
+        color: Colors.white.withAlphaCompat(0.18),
         borderRadius: BorderRadius.circular(28),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
+        border: Border.all(color: Colors.white.withAlphaCompat(0.18)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -827,7 +1047,7 @@ class _DashboardQuickLink extends StatelessWidget {
         borderRadius: BorderRadius.circular(28),
         boxShadow: [
           BoxShadow(
-            color: theme.colorScheme.primary.withValues(alpha: 0.12),
+            color: theme.colorScheme.primary.withAlphaCompat(0.12),
             blurRadius: 26,
             offset: const Offset(0, 12),
           ),
@@ -847,7 +1067,7 @@ class _DashboardQuickLink extends StatelessWidget {
                 Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: theme.colorScheme.primary.withValues(alpha: 0.1),
+                    color: theme.colorScheme.primary.withAlphaCompat(0.1),
                     borderRadius: BorderRadius.circular(18),
                   ),
                   child: Icon(icon, color: theme.colorScheme.primary, size: 24),
@@ -918,10 +1138,10 @@ class _AdminDataCard extends StatelessWidget {
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(28),
         color: colorScheme.surface,
-        border: Border.all(color: colorScheme.primary.withValues(alpha: 0.08)),
+        border: Border.all(color: colorScheme.primary.withAlphaCompat(0.08)),
         boxShadow: [
           BoxShadow(
-            color: colorScheme.primary.withValues(alpha: 0.08),
+            color: colorScheme.primary.withAlphaCompat(0.08),
             blurRadius: 24,
             offset: const Offset(0, 12),
           ),
@@ -937,7 +1157,7 @@ class _AdminDataCard extends StatelessWidget {
                 Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: colorScheme.primary.withValues(alpha: 0.12),
+                    color: colorScheme.primary.withAlphaCompat(0.12),
                     borderRadius: BorderRadius.circular(18),
                   ),
                   child: Icon(icon, color: colorScheme.primary),
@@ -997,7 +1217,7 @@ class _AdminDataRow extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       decoration: BoxDecoration(
-        color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.18),
+        color: colorScheme.surfaceContainerHighest.withAlphaCompat(0.18),
         borderRadius: BorderRadius.circular(20),
       ),
       child: Row(
@@ -1006,7 +1226,7 @@ class _AdminDataRow extends StatelessWidget {
           Container(
             padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
-              color: colorScheme.primary.withValues(alpha: 0.12),
+              color: colorScheme.primary.withAlphaCompat(0.12),
               shape: BoxShape.circle,
             ),
             child: Icon(icon, color: colorScheme.primary, size: 20),
@@ -1052,7 +1272,7 @@ class _StatusBadge extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.16),
+        color: color.withAlphaCompat(0.16),
         borderRadius: BorderRadius.circular(20),
       ),
       child: Text(
@@ -1079,7 +1299,7 @@ class _InfoPill extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
       decoration: BoxDecoration(
-        color: colorScheme.primary.withValues(alpha: 0.1),
+        color: colorScheme.primary.withAlphaCompat(0.1),
         borderRadius: BorderRadius.circular(18),
       ),
       child: Row(
@@ -1402,10 +1622,10 @@ class _StatCardState extends State<_StatCard> {
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(28),
         color: colorScheme.surface,
-        border: Border.all(color: colorScheme.primary.withValues(alpha: 0.08)),
+        border: Border.all(color: colorScheme.primary.withAlphaCompat(0.08)),
         boxShadow: [
           BoxShadow(
-            color: colorScheme.primary.withValues(alpha: 0.12),
+            color: colorScheme.primary.withAlphaCompat(0.12),
             blurRadius: 24,
             offset: const Offset(0, 12),
           ),
@@ -1416,7 +1636,7 @@ class _StatCardState extends State<_StatCard> {
         child: InkWell(
           borderRadius: BorderRadius.circular(28),
           onTap: widget.route == null ? null : () => context.go(widget.route!),
-          splashColor: colorScheme.primary.withValues(alpha: 0.08),
+          splashColor: colorScheme.primary.withAlphaCompat(0.08),
           highlightColor: Colors.transparent,
           child: Padding(
             padding: const EdgeInsets.fromLTRB(24, 24, 24, 22),
@@ -1427,7 +1647,7 @@ class _StatCardState extends State<_StatCard> {
                 Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: colorScheme.primary.withValues(alpha: 0.12),
+                    color: colorScheme.primary.withAlphaCompat(0.12),
                     borderRadius: BorderRadius.circular(18),
                   ),
                   child: Icon(
@@ -1475,6 +1695,53 @@ class _StatCardState extends State<_StatCard> {
   }
 }
 
+class _NavEntry {
+  const _NavEntry(this.route, this.label, this.icon);
+
+  final String route;
+  final String label;
+  final IconData icon;
+}
+
+const List<_NavEntry> _navEntries = [
+  _NavEntry('/dashboard', 'Dashboard', Icons.space_dashboard_rounded),
+  _NavEntry('/bookings', 'Bookings', Icons.event_available_rounded),
+  _NavEntry('/complaints', 'Complaints', Icons.support_agent_rounded),
+  _NavEntry('/news', 'News & alerts', Icons.campaign_rounded),
+  _NavEntry('/users', 'Admin users', Icons.supervisor_account_rounded),
+  _NavEntry('/tracker', 'Live tracker', Icons.route_rounded),
+];
+
+String _normalizeLocation(String location) {
+  try {
+    return Uri.parse(location).path;
+  } catch (_) {
+    return location;
+  }
+}
+
+String _stripTrailingSlash(String path) {
+  if (path.length > 1 && path.endsWith('/')) {
+    return path.substring(0, path.length - 1);
+  }
+  return path;
+}
+
+bool _isRouteActive(String location, String route) {
+  final normalizedLocation = _stripTrailingSlash(_normalizeLocation(location));
+  final normalizedRoute = _stripTrailingSlash(route);
+  if (normalizedLocation == normalizedRoute) return true;
+  if (normalizedRoute == '/dashboard') return false;
+  return normalizedLocation.startsWith('$normalizedRoute/');
+}
+
+int _selectedIndexForLocation(String location) {
+  final index = _navEntries.indexWhere(
+    (entry) => _isRouteActive(location, entry.route),
+  );
+  return index >= 0 ? index : 0;
+}
+
 class _Nav extends StatelessWidget {
   const _Nav();
 
@@ -1483,111 +1750,79 @@ class _Nav extends StatelessWidget {
     final router = GoRouter.of(context);
     final location = router.routeInformationProvider.value.uri.toString();
     final theme = Theme.of(context);
-    final items = const [
-      _NavEntry('/dashboard', 'Dashboard', Icons.space_dashboard_rounded),
-      _NavEntry('/bookings', 'Bookings', Icons.event_available_rounded),
-      _NavEntry('/complaints', 'Complaints', Icons.support_agent_rounded),
-      _NavEntry('/news', 'News & alerts', Icons.campaign_rounded),
-      _NavEntry('/users', 'Admin users', Icons.supervisor_account_rounded),
-      _NavEntry('/tracker', 'Live tracker', Icons.route_rounded),
-    ];
+    final scheme = theme.colorScheme;
+    final selectedIndex = _selectedIndexForLocation(location);
 
-    Color tileColor(bool selected) => selected
-        ? theme.colorScheme.primary.withValues(alpha: 0.12)
-        : Colors.transparent;
+    void closeDrawer() => Navigator.of(context).pop();
 
     return Drawer(
-      backgroundColor: theme.colorScheme.surface,
+      backgroundColor: scheme.surface,
       child: SafeArea(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Container(
-              padding: const EdgeInsets.fromLTRB(20, 26, 20, 24),
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [
-                    theme.colorScheme.primary,
-                    theme.colorScheme.secondary,
-                  ],
-                ),
-              ),
-              child: Row(
+            Padding(
+              padding: const EdgeInsets.fromLTRB(24, 24, 24, 16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Container(
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.18),
+                      color: scheme.primary.withAlphaCompat(0.12),
                       borderRadius: BorderRadius.circular(16),
                     ),
-                    child: const Icon(
-                      Icons.apartment_rounded,
-                      color: Colors.white,
+                    child: Icon(Icons.apartment_rounded, color: scheme.primary),
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    'Udubaddawa PS',
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w700,
                     ),
                   ),
-                  const SizedBox(width: 14),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Udubaddawa PS',
-                          style: theme.textTheme.titleMedium?.copyWith(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          'Administrative console',
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: Colors.white70,
-                          ),
-                        ),
-                      ],
+                  const SizedBox(height: 4),
+                  Text(
+                    'Administrative console',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: scheme.onSurfaceVariant,
                     ),
                   ),
                 ],
               ),
             ),
+            const Divider(height: 1),
             Expanded(
               child: ListView.builder(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 12,
-                ),
-                itemCount: items.length,
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                itemCount: _navEntries.length,
                 itemBuilder: (context, index) {
-                  final item = items[index];
-                  final selected =
-                      location == item.route ||
-                      (location.startsWith(item.route) &&
-                          item.route != '/dashboard');
+                  final entry = _navEntries[index];
+                  final selected = index == selectedIndex;
                   return Padding(
                     padding: const EdgeInsets.symmetric(vertical: 4),
                     child: ListTile(
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(20),
                       ),
-                      tileColor: tileColor(selected),
+                      tileColor: selected
+                          ? scheme.primary.withAlphaCompat(0.12)
+                          : Colors.transparent,
                       leading: Icon(
-                        item.icon,
-                        color: selected
-                            ? theme.colorScheme.primary
-                            : theme.colorScheme.onSurfaceVariant,
+                        entry.icon,
+                        color:
+                            selected ? scheme.primary : scheme.onSurfaceVariant,
                       ),
                       title: Text(
-                        item.label,
+                        entry.label,
                         style: theme.textTheme.titleSmall?.copyWith(
                           fontWeight: FontWeight.w600,
                         ),
                       ),
                       onTap: () {
-                        Navigator.of(context).pop();
+                        closeDrawer();
                         if (!selected) {
-                          router.go(item.route);
+                          router.go(entry.route);
                         }
                       },
                     ),
@@ -1596,14 +1831,12 @@ class _Nav extends StatelessWidget {
               ),
             ),
             Padding(
-              padding: const EdgeInsets.fromLTRB(18, 0, 18, 18),
+              padding: const EdgeInsets.fromLTRB(18, 0, 18, 24),
               child: Column(
                 children: [
-                  const Divider(),
-                  const SizedBox(height: 12),
                   FilledButton.tonalIcon(
                     onPressed: () async {
-                      Navigator.of(context).pop();
+                      closeDrawer();
                       await AuditLog.log('sign_out', {
                         'reason': 'user_initiated',
                       });
@@ -1618,7 +1851,7 @@ class _Nav extends StatelessWidget {
                     'Need help? Call +94 11 234 5678',
                     textAlign: TextAlign.center,
                     style: theme.textTheme.bodySmall?.copyWith(
-                      color: theme.colorScheme.onSurfaceVariant,
+                      color: scheme.onSurfaceVariant,
                     ),
                   ),
                 ],
@@ -1631,12 +1864,129 @@ class _Nav extends StatelessWidget {
   }
 }
 
-class _NavEntry {
-  const _NavEntry(this.route, this.label, this.icon);
+class _DesktopNavRail extends StatelessWidget {
+  const _DesktopNavRail();
 
-  final String route;
-  final String label;
-  final IconData icon;
+  @override
+  Widget build(BuildContext context) {
+    final router = GoRouter.of(context);
+    final location = router.routeInformationProvider.value.uri.toString();
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final selectedIndex = _selectedIndexForLocation(location);
+
+    return SafeArea(
+      child: Container(
+        width: 300,
+        margin: const EdgeInsets.fromLTRB(24, 24, 16, 24),
+        decoration: BoxDecoration(
+          color: scheme.surface,
+          borderRadius: BorderRadius.circular(28),
+          boxShadow: [
+            BoxShadow(
+              color: scheme.shadow.withAlphaCompat(0.06),
+              blurRadius: 32,
+              offset: const Offset(0, 18),
+            ),
+          ],
+        ),
+        child: NavigationRailTheme(
+          data: NavigationRailThemeData(
+            indicatorColor: scheme.primary.withAlphaCompat(0.16),
+            selectedLabelTextStyle: theme.textTheme.titleSmall?.copyWith(
+              fontWeight: FontWeight.w700,
+            ),
+            unselectedLabelTextStyle: theme.textTheme.titleSmall?.copyWith(
+              fontWeight: FontWeight.w500,
+            ),
+            selectedIconTheme: IconThemeData(color: scheme.primary),
+            unselectedIconTheme: IconThemeData(color: scheme.onSurfaceVariant),
+          ),
+          child: NavigationRail(
+            extended: true,
+            minExtendedWidth: 240,
+            backgroundColor: Colors.transparent,
+            groupAlignment: -0.75,
+            leading: Padding(
+              padding: const EdgeInsets.fromLTRB(20, 24, 20, 24),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: scheme.primary.withAlphaCompat(0.12),
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: Icon(Icons.apartment_rounded, color: scheme.primary),
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    'Udubaddawa PS',
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Administrative console',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: scheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            trailing: Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  FilledButton.icon(
+                    style: FilledButton.styleFrom(
+                      minimumSize: const Size.fromHeight(44),
+                    ),
+                    onPressed: () async {
+                      await AuditLog.log('sign_out', {
+                        'reason': 'user_initiated',
+                      });
+                      await FirebaseAuth.instance.signOut();
+                      if (context.mounted) {
+                        router.go('/login');
+                      }
+                    },
+                    icon: const Icon(Icons.logout_rounded),
+                    label: const Text('Sign out'),
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    'Need help? Call +94 11 234 5678',
+                    textAlign: TextAlign.center,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: scheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            selectedIndex: selectedIndex,
+            onDestinationSelected: (index) {
+              final destination = _navEntries[index];
+              if (index == selectedIndex) return;
+              router.go(destination.route);
+            },
+            destinations: [
+              for (final entry in _navEntries)
+                NavigationRailDestination(
+                  icon: Icon(entry.icon),
+                  label: Text(entry.label),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class _Logo extends StatelessWidget {
@@ -1702,7 +2052,7 @@ class _AdminTrackerScreenState extends State<AdminTrackerScreen> {
                           BoxShadow(
                             color: Theme.of(
                               context,
-                            ).colorScheme.primary.withValues(alpha: 0.12),
+                            ).colorScheme.primary.withAlphaCompat(0.12),
                             blurRadius: 32,
                             offset: const Offset(0, 20),
                           ),
@@ -2082,10 +2432,10 @@ class _TrackerVehiclesPanel extends StatelessWidget {
       decoration: BoxDecoration(
         color: scheme.surface,
         borderRadius: BorderRadius.circular(28),
-        border: Border.all(color: scheme.primary.withValues(alpha: 0.08)),
+        border: Border.all(color: scheme.primary.withAlphaCompat(0.08)),
         boxShadow: [
           BoxShadow(
-            color: scheme.primary.withValues(alpha: 0.08),
+            color: scheme.primary.withAlphaCompat(0.08),
             blurRadius: 24,
             offset: const Offset(0, 14),
           ),
@@ -2101,7 +2451,7 @@ class _TrackerVehiclesPanel extends StatelessWidget {
                 Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: scheme.primary.withValues(alpha: 0.12),
+                    color: scheme.primary.withAlphaCompat(0.12),
                     borderRadius: BorderRadius.circular(18),
                   ),
                   child: const Icon(
@@ -2233,7 +2583,7 @@ class _TrackerVehiclesPanel extends StatelessWidget {
                               padding: const EdgeInsets.all(16),
                               decoration: BoxDecoration(
                                 color: scheme.surfaceContainerHighest
-                                    .withValues(alpha: 0.16),
+                                    .withAlphaCompat(0.16),
                                 borderRadius: BorderRadius.circular(20),
                               ),
                               child: Row(
@@ -2246,7 +2596,7 @@ class _TrackerVehiclesPanel extends StatelessWidget {
                                           (recentRow
                                                   ? Colors.green
                                                   : scheme.error)
-                                              .withValues(alpha: 0.14),
+                                              .withAlphaCompat(0.14),
                                       shape: BoxShape.circle,
                                     ),
                                     child: Icon(
@@ -2654,7 +3004,19 @@ class BookingsAdminScreen extends StatelessWidget {
                             ),
                           ],
                           onChanged: (nv) {
-                            type.value = nv ?? 'ground';
+                            final next = nv ?? 'ground';
+                            if (type.value == next) {
+                              return;
+                            }
+                            type.value = next;
+                            if (next == 'cemetery') {
+                              reasonCtrl.clear();
+                            } else {
+                              deathCertUrl = null;
+                              deathCertName = null;
+                            }
+                            cemeterySlot = null;
+                            groundTime = null;
                             (c as Element).markNeedsBuild();
                           },
                         );
@@ -2842,12 +3204,12 @@ class BookingsAdminScreen extends StatelessWidget {
                     ),
                     onChanged: (v) => groundTime = v,
                   ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: reasonCtrl,
+                    decoration: const InputDecoration(labelText: 'Reason'),
+                  ),
                 ],
-                const SizedBox(height: 8),
-                TextField(
-                  controller: reasonCtrl,
-                  decoration: const InputDecoration(labelText: 'Reason'),
-                ),
                 const SizedBox(height: 8),
                 TextField(
                   controller: nameCtrl,
@@ -2882,6 +3244,14 @@ class BookingsAdminScreen extends StatelessWidget {
                   );
                   return;
                 }
+                if (type.value == 'cemetery' && deathCertUrl == null) {
+                  ScaffoldMessenger.of(c).showSnackBar(
+                    const SnackBar(
+                      content: Text('Attach the death certificate before submitting'),
+                    ),
+                  );
+                  return;
+                }
                 final user = FirebaseAuth.instance.currentUser;
                 final data = <String, dynamic>{
                   'bookingType': type.value,
@@ -2897,7 +3267,9 @@ class BookingsAdminScreen extends StatelessWidget {
                   'notes': notesCtrl.text.trim(),
                 };
                 // Compose booking reason and include time info
-                var r = reasonCtrl.text.trim();
+                var r = type.value == 'ground'
+                    ? reasonCtrl.text.trim()
+                    : '';
                 final timeText = type.value == 'cemetery'
                     ? cemeterySlot
                     : groundTime;
@@ -3133,10 +3505,10 @@ class _BookingReportPanelState extends State<_BookingReportPanel> {
       decoration: BoxDecoration(
         color: colorScheme.surface,
         borderRadius: BorderRadius.circular(28),
-        border: Border.all(color: colorScheme.primary.withValues(alpha: 0.08)),
+        border: Border.all(color: colorScheme.primary.withAlphaCompat(0.08)),
         boxShadow: [
           BoxShadow(
-            color: colorScheme.primary.withValues(alpha: 0.08),
+            color: colorScheme.primary.withAlphaCompat(0.08),
             blurRadius: 24,
             offset: const Offset(0, 14),
           ),
@@ -3153,7 +3525,7 @@ class _BookingReportPanelState extends State<_BookingReportPanel> {
                 Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: colorScheme.primary.withValues(alpha: 0.12),
+                    color: colorScheme.primary.withAlphaCompat(0.12),
                     borderRadius: BorderRadius.circular(18),
                   ),
                   child: Icon(
@@ -3277,7 +3649,7 @@ class _BookingReportPanelState extends State<_BookingReportPanel> {
                 FilledButton.icon(
                   onPressed: _busy ? null : _downloadPdf,
                   icon: const Icon(Icons.picture_as_pdf_outlined),
-                  label: const Text('Download PDF'),
+                  label: const Text('Save PDF'),
                 ),
               ],
             ),
@@ -3403,11 +3775,31 @@ class _BookingReportPanelState extends State<_BookingReportPanel> {
         );
         return;
       }
+      final bytes = await _buildPdf(bookings, summary);
       final fileName = _buildFileName();
-      await Printing.layoutPdf(
-        name: fileName,
-        format: PdfPageFormat.a4,
-        onLayout: (format) async => _buildPdf(bookings, summary),
+      final downloadsDir = await getDownloadsDirectory();
+      final documentsDir = await getApplicationDocumentsDirectory();
+      final targetDir = downloadsDir ?? documentsDir;
+      final basePath =
+          '${targetDir.path}${Platform.pathSeparator}$fileName';
+      var outputFile = File(basePath);
+      if (await outputFile.exists()) {
+        final stamp = DateFormat('yyyyMMdd_HHmmss').format(DateTime.now());
+        final dotIndex = fileName.lastIndexOf('.');
+        final name = dotIndex > 0 ? fileName.substring(0, dotIndex) : fileName;
+        final ext = dotIndex > 0 ? fileName.substring(dotIndex) : '';
+        outputFile = File(
+          '${targetDir.path}${Platform.pathSeparator}${name}_$stamp$ext',
+        );
+      }
+      await outputFile.create(recursive: true);
+      await outputFile.writeAsBytes(bytes, flush: true);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          duration: const Duration(seconds: 6),
+          content: Text('Report saved to ${outputFile.path}'),
+        ),
       );
     } catch (e, stack) {
       debugPrint('Failed to export booking PDF: $e\n$stack');
@@ -3561,7 +3953,7 @@ class _BookingReportPanelState extends State<_BookingReportPanel> {
     List<_ReportBooking> bookings,
     _ReportSummary summary,
   ) async {
-    final pdf = pw.Document();
+  final report = pw.Document();
     final detailsTableData = bookings.map((booking) {
       return [
         _formatDate(booking.bookingDate),
@@ -3572,9 +3964,9 @@ class _BookingReportPanelState extends State<_BookingReportPanel> {
       ];
     }).toList();
 
-    pdf.addPage(
+  report.addPage(
       pw.MultiPage(
-        pageFormat: PdfPageFormat.a4,
+        pageFormat: pdf.PdfPageFormat.a4,
         margin: const pw.EdgeInsets.all(32),
         build: (context) {
           return [
@@ -3598,7 +3990,7 @@ class _BookingReportPanelState extends State<_BookingReportPanel> {
                 pw.SizedBox(height: 18),
               ],
             ),
-            pw.Table.fromTextArray(
+            pw.TableHelper.fromTextArray(
               headers: const ['Metric', 'Count'],
               data: [
                 ['Total bookings', summary.total.toString()],
@@ -3608,12 +4000,12 @@ class _BookingReportPanelState extends State<_BookingReportPanel> {
               ],
               headerStyle: pw.TextStyle(
                 fontWeight: pw.FontWeight.bold,
-                color: PdfColor.fromInt(0xFF444444),
+                color: pdf.PdfColors.grey700,
               ),
               cellStyle: const pw.TextStyle(fontSize: 11),
-              border: pw.TableBorder.all(color: PdfColor.fromInt(0xFFCCCCCC)),
-              headerDecoration: const pw.BoxDecoration(
-                color: PdfColor.fromInt(0xFFECEFF1),
+              border: pw.TableBorder.all(color: pdf.PdfColors.grey400),
+              headerDecoration: pw.BoxDecoration(
+                color: pdf.PdfColors.grey200,
               ),
             ),
             pw.SizedBox(height: 20),
@@ -3631,25 +4023,25 @@ class _BookingReportPanelState extends State<_BookingReportPanel> {
                 ),
               ),
               pw.SizedBox(height: 8),
-              pw.Table.fromTextArray(
+              pw.TableHelper.fromTextArray(
                 headers: const ['Date', 'Type', 'Status', 'Visitor', 'Notes'],
                 data: detailsTableData,
                 cellStyle: const pw.TextStyle(fontSize: 10),
                 headerStyle: pw.TextStyle(
                   fontWeight: pw.FontWeight.bold,
-                  color: PdfColor.fromInt(0xFF444444),
+                  color: pdf.PdfColors.grey700,
                 ),
-                headerDecoration: const pw.BoxDecoration(
-                  color: PdfColor.fromInt(0xFFE0E0E0),
+                headerDecoration: pw.BoxDecoration(
+                  color: pdf.PdfColors.grey300,
                 ),
-                columnWidths: const {
+                columnWidths: {
                   0: pw.FlexColumnWidth(1.1),
                   1: pw.FlexColumnWidth(1.1),
                   2: pw.FlexColumnWidth(1),
                   3: pw.FlexColumnWidth(1.2),
                   4: pw.FlexColumnWidth(2.6),
                 },
-                border: pw.TableBorder.all(color: PdfColor.fromInt(0xFFCCCCCC)),
+                border: pw.TableBorder.all(color: pdf.PdfColors.grey400),
               ),
             ],
           ];
@@ -3657,7 +4049,7 @@ class _BookingReportPanelState extends State<_BookingReportPanel> {
       ),
     );
 
-    return pdf.save();
+    return report.save();
   }
 
   void _clearCachedData() {
@@ -3806,9 +4198,9 @@ class _SummaryStatCard extends StatelessWidget {
     return Container(
       width: 180,
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.12),
+        color: color.withAlphaCompat(0.12),
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: color.withValues(alpha: 0.18)),
+        border: Border.all(color: color.withAlphaCompat(0.18)),
       ),
       padding: const EdgeInsets.all(16),
       child: Column(
@@ -3816,7 +4208,7 @@ class _SummaryStatCard extends StatelessWidget {
         children: [
           CircleAvatar(
             radius: 18,
-            backgroundColor: color.withValues(alpha: 0.16),
+            backgroundColor: color.withAlphaCompat(0.16),
             child: Icon(icon, color: color, size: 18),
           ),
           const SizedBox(height: 12),
@@ -3856,8 +4248,8 @@ class _SummaryChip extends StatelessWidget {
     return Chip(
       avatar: Icon(icon, size: 16, color: color),
       label: Text(label),
-      side: BorderSide(color: color.withValues(alpha: 0.3)),
-      backgroundColor: color.withValues(alpha: 0.1),
+      side: BorderSide(color: color.withAlphaCompat(0.3)),
+      backgroundColor: color.withAlphaCompat(0.1),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
     );
   }
@@ -3903,10 +4295,10 @@ class _BookingAdminTile extends StatelessWidget {
       decoration: BoxDecoration(
         color: scheme.surface,
         borderRadius: BorderRadius.circular(28),
-        border: Border.all(color: scheme.primary.withValues(alpha: 0.08)),
+        border: Border.all(color: scheme.primary.withAlphaCompat(0.08)),
         boxShadow: [
           BoxShadow(
-            color: scheme.primary.withValues(alpha: 0.08),
+            color: scheme.primary.withAlphaCompat(0.08),
             blurRadius: 24,
             offset: const Offset(0, 14),
           ),
@@ -3923,7 +4315,7 @@ class _BookingAdminTile extends StatelessWidget {
                 Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: scheme.primary.withValues(alpha: 0.12),
+                    color: scheme.primary.withAlphaCompat(0.12),
                     borderRadius: BorderRadius.circular(18),
                   ),
                   child: const Icon(
@@ -4088,11 +4480,11 @@ class _ComplaintsAdminScreenState extends State<ComplaintsAdminScreen> {
                     color: colorScheme.surface,
                     borderRadius: BorderRadius.circular(28),
                     border: Border.all(
-                      color: colorScheme.primary.withValues(alpha: 0.08),
+                      color: colorScheme.primary.withAlphaCompat(0.08),
                     ),
                     boxShadow: [
                       BoxShadow(
-                        color: colorScheme.primary.withValues(alpha: 0.08),
+                        color: colorScheme.primary.withAlphaCompat(0.08),
                         blurRadius: 24,
                         offset: const Offset(0, 14),
                       ),
@@ -4106,7 +4498,7 @@ class _ComplaintsAdminScreenState extends State<ComplaintsAdminScreen> {
                         Container(
                           padding: const EdgeInsets.all(12),
                           decoration: BoxDecoration(
-                            color: colorScheme.primary.withValues(alpha: 0.12),
+                            color: colorScheme.primary.withAlphaCompat(0.12),
                             borderRadius: BorderRadius.circular(18),
                           ),
                           child: Icon(
@@ -4146,11 +4538,11 @@ class _ComplaintsAdminScreenState extends State<ComplaintsAdminScreen> {
                       color: colorScheme.surface,
                       borderRadius: BorderRadius.circular(28),
                       border: Border.all(
-                        color: colorScheme.primary.withValues(alpha: 0.06),
+                        color: colorScheme.primary.withAlphaCompat(0.06),
                       ),
                       boxShadow: [
                         BoxShadow(
-                          color: colorScheme.primary.withValues(alpha: 0.06),
+                          color: colorScheme.primary.withAlphaCompat(0.06),
                           blurRadius: 20,
                           offset: const Offset(0, 12),
                         ),
@@ -4384,7 +4776,7 @@ class _ComplaintsAdminScreenState extends State<ComplaintsAdminScreen> {
         if (!v) return;
         setState(() => _statusFilter = value);
       },
-      selectedColor: theme.colorScheme.primary.withValues(alpha: 0.18),
+      selectedColor: theme.colorScheme.primary.withAlphaCompat(0.18),
       labelStyle: theme.textTheme.labelLarge?.copyWith(
         color: selected
             ? theme.colorScheme.primary
@@ -4593,10 +4985,10 @@ class _ComplaintAdminTile extends StatelessWidget {
       decoration: BoxDecoration(
         color: scheme.surface,
         borderRadius: BorderRadius.circular(28),
-        border: Border.all(color: scheme.primary.withValues(alpha: 0.08)),
+        border: Border.all(color: scheme.primary.withAlphaCompat(0.08)),
         boxShadow: [
           BoxShadow(
-            color: scheme.primary.withValues(alpha: 0.08),
+            color: scheme.primary.withAlphaCompat(0.08),
             blurRadius: 24,
             offset: const Offset(0, 14),
           ),
@@ -4612,7 +5004,7 @@ class _ComplaintAdminTile extends StatelessWidget {
                 Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: statusColor.withValues(alpha: 0.14),
+                    color: statusColor.withAlphaCompat(0.14),
                     borderRadius: BorderRadius.circular(18),
                   ),
                   child: Icon(
@@ -4832,10 +5224,10 @@ class _NewsAdminScreenState extends State<NewsAdminScreen> {
       decoration: BoxDecoration(
         color: scheme.surface,
         borderRadius: BorderRadius.circular(28),
-        border: Border.all(color: scheme.primary.withValues(alpha: 0.08)),
+        border: Border.all(color: scheme.primary.withAlphaCompat(0.08)),
         boxShadow: [
           BoxShadow(
-            color: scheme.primary.withValues(alpha: 0.08),
+            color: scheme.primary.withAlphaCompat(0.08),
             blurRadius: 24,
             offset: const Offset(0, 14),
           ),
@@ -4851,7 +5243,7 @@ class _NewsAdminScreenState extends State<NewsAdminScreen> {
                 Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: scheme.primary.withValues(alpha: 0.12),
+                    color: scheme.primary.withAlphaCompat(0.12),
                     borderRadius: BorderRadius.circular(18),
                   ),
                   child: Icon(Icons.campaign_rounded, color: scheme.primary),
@@ -4998,10 +5390,10 @@ class _NewsAdminScreenState extends State<NewsAdminScreen> {
       decoration: BoxDecoration(
         color: scheme.surface,
         borderRadius: BorderRadius.circular(28),
-        border: Border.all(color: scheme.primary.withValues(alpha: 0.06)),
+        border: Border.all(color: scheme.primary.withAlphaCompat(0.06)),
         boxShadow: [
           BoxShadow(
-            color: scheme.primary.withValues(alpha: 0.06),
+            color: scheme.primary.withAlphaCompat(0.06),
             blurRadius: 20,
             offset: const Offset(0, 12),
           ),
@@ -5205,11 +5597,11 @@ class _UsersAdminScreenState extends State<UsersAdminScreen> {
                     color: colorScheme.surface,
                     borderRadius: BorderRadius.circular(28),
                     border: Border.all(
-                      color: colorScheme.primary.withValues(alpha: 0.08),
+                      color: colorScheme.primary.withAlphaCompat(0.08),
                     ),
                     boxShadow: [
                       BoxShadow(
-                        color: colorScheme.primary.withValues(alpha: 0.08),
+                        color: colorScheme.primary.withAlphaCompat(0.08),
                         blurRadius: 24,
                         offset: const Offset(0, 14),
                       ),
@@ -5222,7 +5614,7 @@ class _UsersAdminScreenState extends State<UsersAdminScreen> {
                         Container(
                           padding: const EdgeInsets.all(12),
                           decoration: BoxDecoration(
-                            color: colorScheme.primary.withValues(alpha: 0.12),
+                            color: colorScheme.primary.withAlphaCompat(0.12),
                             borderRadius: BorderRadius.circular(18),
                           ),
                           child: Icon(
@@ -5262,11 +5654,11 @@ class _UsersAdminScreenState extends State<UsersAdminScreen> {
                       color: colorScheme.surface,
                       borderRadius: BorderRadius.circular(28),
                       border: Border.all(
-                        color: colorScheme.primary.withValues(alpha: 0.06),
+                        color: colorScheme.primary.withAlphaCompat(0.06),
                       ),
                       boxShadow: [
                         BoxShadow(
-                          color: colorScheme.primary.withValues(alpha: 0.06),
+                          color: colorScheme.primary.withAlphaCompat(0.06),
                           blurRadius: 20,
                           offset: const Offset(0, 12),
                         ),
@@ -5440,7 +5832,7 @@ class _UsersAdminScreenState extends State<UsersAdminScreen> {
               Container(
                 padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
-                  color: colorScheme.primary.withValues(alpha: 0.12),
+                  color: colorScheme.primary.withAlphaCompat(0.12),
                   borderRadius: BorderRadius.circular(16),
                 ),
                 child: Icon(
@@ -5538,16 +5930,16 @@ class _UserAdminTile extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.22),
+        color: colorScheme.surfaceContainerHighest.withAlphaCompat(0.22),
         borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: colorScheme.primary.withValues(alpha: 0.04)),
+        border: Border.all(color: colorScheme.primary.withAlphaCompat(0.04)),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           CircleAvatar(
             radius: 26,
-            backgroundColor: colorScheme.primary.withValues(alpha: 0.12),
+            backgroundColor: colorScheme.primary.withAlphaCompat(0.12),
             child: Text(
               initials,
               style: theme.textTheme.titleMedium?.copyWith(
@@ -5767,7 +6159,7 @@ class _SecurityOverlayState extends State<SecurityOverlay> {
       children: [
         content,
         ModalBarrier(
-          color: Colors.black.withValues(alpha: 0.5),
+          color: Colors.black.withAlphaCompat(0.5),
           dismissible: false,
         ),
         Center(

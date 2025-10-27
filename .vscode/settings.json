@@ -1,3 +1,9 @@
 {
-  "IDX.agenticWorkspace": true
+  "IDX.agenticWorkspace": true,
+  "cmake.sourceDirectory": "D:/GitHub/UPS---User-Android-App-and-Admin-Web-App/apps/admin_desktop/windows",
+  "dart.flutterProjectPaths": [
+    "apps/user_mobile",
+    "apps/admin_web",
+    "apps/admin_desktop"
+  ]
 }
